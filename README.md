@@ -411,6 +411,9 @@ hearts(3, "heart.png");                       // with your own heart picture
 // use health() AND hearts() together: an empty bar costs a heart and refills
 
 hurt(10);  heal(25);  health_left()           // do it yourself from any function
+
+size_all("ghost.png", 0.6);                   // smaller ghosts
+size_all("fireball.png", 0.5);                // smaller fireballs (works for ones shot later too)
 ```
 
 <img src="screenshots/battle.png" width="520">

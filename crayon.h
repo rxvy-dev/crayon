@@ -8238,6 +8238,7 @@ typedef struct {
     char name[256]; int w, h; unsigned char *px;         /* px = RGBA of the frame to show */
     unsigned char *frames; int nframes, *delays, total_ms; long start_ms;   /* gifs */
     void *video;                                                            /* videos */
+    float size;                                                             /* size_all() remembers it here */
 } _TtImage;
 typedef struct { int size, bold; void *xft; XFontStruct *core; int asc, desc; void *emoji; int emoji_tried; } _TtFont;
 typedef struct {
@@ -9554,6 +9555,7 @@ TT Thing _tt_setup_thing(int th, int img, double x, double y) {
     _TtTurtle *t = &_tt.t[th];
     t->is_thing = 1; t->img = img; t->look = _TT_PIC; t->has_pic = 1; t->pen = 0;
     t->x = (float)x; t->y = (float)y;
+    if (img >= 0 && img < _tt.nimg && _tt.img[img].size > 0) t->size = _tt.img[img].size;   /* size_all() */
     _tt.last_thing = th;
     _tt_show();
     return th;
@@ -10594,10 +10596,11 @@ TT void _tt_spawn3(const char *file, int how_many, double size) {
 TT void _tt_spawn2(const char *file, int how_many) { _tt_spawn3(file, how_many, 1); }
 #define spawn(...) _TT_PICK3(__VA_ARGS__, _tt_spawn3, _tt_spawn2, 0)(__VA_ARGS__)
 
-/* size_all("coin.png", 0.5);   makes every coin half size (2 = twice as big) */
+/* size_all("coin.png", 0.5);   makes every coin half size (2 = twice as big) - also ones made later */
 TT void size_all(const char *file, double size) {
     _tt_check();
     int img = _tt_image(file);
+    _tt.img[img].size = (float)size;                         /* new ones (like bullets) get it too */
     for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].is_thing && _tt.t[i].img == img) _tt.t[i].size = (float)size;
 }
 TT Thing spawn_at(const char *file, double x, double y) { _tt_check(); _tt_game.active = 1; return _tt_add_image3(file, x, y); }
