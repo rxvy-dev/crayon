@@ -214,7 +214,7 @@ TT int _tt_ieq(const char *a, const char *b) {
 /* STATE                                                        */
 /* ============================================================ */
 #define _TT_MAXT    64
-#define _TT_MAXI    64
+#define _TT_MAXI    256
 #define _TT_MAXB    160
 #define _TT_MAXTXT  512
 #define _TT_FILLMAX 2048
@@ -224,6 +224,7 @@ enum { _TT_NONE, _TT_ARROW, _TT_PIC };
 typedef struct {
     float x, y, heading;
     int pen, thick, look, img, has_pic, flip, upright, drag, filling, nfill;
+    int moving, spinning; float goal_x, goal_y, move_speed, spin_left, spin_speed;
     float size;
     unsigned long color;
     XPoint fill[_TT_FILLMAX];
@@ -680,7 +681,37 @@ TT int _tt_tagged(Drawable d, _TtFont *f, int x, int y, unsigned long c, const c
     return x - x0;
 }
 
+/* moves and spins things that were told to glide (runs every time the screen updates) */
+TT int _tt_animating(void) {
+    for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].moving || _tt.t[i].spinning) return 1;
+    return 0;
+}
+TT void _tt_anim_step(void) {
+    static struct timespec prev;
+    static int started = 0;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    float frames = started ? ((now.tv_sec - prev.tv_sec) + (now.tv_nsec - prev.tv_nsec) / 1e9f) * 60.0f : 1;
+    prev = now; started = 1;
+    if (frames > 6) frames = 6;                     /* don't jump after a long pause */
+    for (int i = 0; i < _tt.nt; i++) {
+        _TtTurtle *t = &_tt.t[i];
+        if (t->moving) {
+            float dx = t->goal_x - t->x, dy = t->goal_y - t->y, dist = _tt_sqrt(dx * dx + dy * dy);
+            float step = t->move_speed * frames;
+            if (dist <= step || t->move_speed <= 0) { t->x = t->goal_x; t->y = t->goal_y; t->moving = 0; }
+            else { t->x += dx / dist * step; t->y += dy / dist * step; }
+        }
+        if (t->spinning) {
+            float step = t->spin_speed * frames, left = t->spin_left;
+            if (_tt_abs(left) <= step || t->spin_speed <= 0) { t->heading += left; t->spinning = 0; }
+            else { float s = left < 0 ? -step : step; t->heading += s; t->spin_left -= s; }
+        }
+    }
+}
+
 TT void _tt_refresh(void) {
+    _tt_anim_step();
     if (_tt.closed || !_tt.dpy) return;
     Display *d = _tt.dpy;
     _tt_layout();
@@ -1129,6 +1160,149 @@ TT void _tt_image4(const char *file, double x, double y, double scale) {
 }
 TT void _tt_image3(const char *file, double x, double y) { _tt_image4(file, x, y, 1); }
 #define image(...) _TT_PICK4(__VA_ARGS__, _tt_image4, _tt_image3, 0, 0)(__VA_ARGS__)
+
+/* ============================================================ */
+/* THINGS: pictures and text you can move, spin and change      */
+/* ============================================================ */
+typedef int Thing;
+
+TT void _tt_wait_tick(void);
+TT Turtle new_turtle(void);
+TT int touching(Turtle other);
+
+/* turns text into a picture (keeps colors and emoji) */
+TT int _tt_text_image(const char *s, int slot) {
+    _TtFont *f = _tt_font(_tt.tsize, _tt.tbold);
+    unsigned long c = _TT_T->color;
+    int w = _tt_tagged(_tt.buf, f, 0, 0, c, s, 0) + 4, h = f->asc + f->desc + 4;
+    if (w > _tt.W) w = _tt.W;
+    if (h > _tt.H) h = _tt.H;
+    if (w < 1) w = 1;
+    XImage *im[2];
+    for (int k = 0; k < 2; k++) {                  /* draw it on black, then on white */
+        XSetForeground(_tt.dpy, _tt.gc, k ? WHITE : BLACK);
+        XFillRectangle(_tt.dpy, _tt.buf, _tt.gc, 0, 0, (unsigned)w, (unsigned)h);
+        _tt_tagged(_tt.buf, f, 2, 2 + f->asc, c, s, 1);
+        im[k] = XGetImage(_tt.dpy, _tt.buf, 0, 0, (unsigned)w, (unsigned)h, AllPlanes, ZPixmap);
+    }
+    int i = slot;
+    if (i < 0) {
+        if (_tt.nimg >= _TT_MAXI) { fprintf(stderr, "crayon.h: too many things\n"); i = _TT_MAXI - 1; }
+        else i = _tt.nimg++;
+    } else free(_tt.img[i].px);
+    _TtImage *g = &_tt.img[i];
+    snprintf(g->name, sizeof g->name, "\x01text%d", i);
+    g->w = w; g->h = h;
+    g->px = (unsigned char *)calloc((size_t)w * h * 4, 1);
+    if (im[0] && im[1] && im[0]->bits_per_pixel == 32) {
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                uint32_t b = ((uint32_t *)(im[0]->data + y * im[0]->bytes_per_line))[x];
+                uint32_t wt = ((uint32_t *)(im[1]->data + y * im[1]->bytes_per_line))[x];
+                int a = 255 - (int)((((wt >> 8) & 255) - ((b >> 8) & 255)));
+                if (a < 0) a = 0;
+                if (a > 255) a = 255;
+                unsigned char *p = g->px + (y * w + x) * 4;
+                if (a) {
+                    p[0] = (unsigned char)(((b >> 16) & 255) * 255 / a > 255 ? 255 : ((b >> 16) & 255) * 255 / a);
+                    p[1] = (unsigned char)(((b >> 8) & 255) * 255 / a > 255 ? 255 : ((b >> 8) & 255) * 255 / a);
+                    p[2] = (unsigned char)((b & 255) * 255 / a > 255 ? 255 : (b & 255) * 255 / a);
+                }
+                p[3] = (unsigned char)a;
+            }
+    }
+    for (int k = 0; k < 2; k++) if (im[k]) XDestroyImage(im[k]);
+    return i;
+}
+
+TT Thing _tt_new_thing(int img, double x, double y) {
+    int keep = _tt.cur;
+    Thing th = new_turtle();
+    _TtTurtle *t = &_tt.t[th];
+    t->img = img; t->look = _TT_PIC; t->has_pic = 1; t->pen = 0;
+    t->x = (float)x; t->y = (float)y;
+    _tt.cur = keep;
+    _tt_show();
+    return th;
+}
+
+/* Thing cat = add_image("cat.png", 0, 0);       a picture you can move later
+ * Thing hi  = add_text("{red}Hello!", 0, 100);  text you can move later (uses textsize, bold, color)
+ * Thing s   = add_text("Score: %d", -300, 200, score); */
+TT Thing add_image(const char *file, double x, double y) { _tt_check(); return _tt_new_thing(_tt_image(file), x, y); }
+TT Thing add_text(const char *fmt, double x, double y, ...) {
+    _tt_check();
+    char b[200]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    return _tt_new_thing(_tt_text_image(b, -1), x, y);
+}
+/* change_text(score, "Score: %d", points);   new words for a text thing */
+TT void change_text(Thing th, const char *fmt, ...) {
+    if (th < 0 || th >= _tt.nt) return;
+    char b[200]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    int img = _tt.t[th].img;
+    int is_text = img >= 0 && _tt.img[img].name[0] == '\x01';
+    _tt.t[th].img = _tt_text_image(b, is_text ? img : -1);
+    _tt_show();
+}
+
+#define _TT_TH(th) if ((th) < 0 || (th) >= _tt.nt) return
+
+/* place(cat, 100, 50);              jump there right away */
+TT void place(Thing th, double x, double y) { _TT_TH(th); _tt.t[th].x = (float)x; _tt.t[th].y = (float)y; _tt.t[th].moving = 0; _tt_show(); }
+
+/* glide(cat, 300, 100, 5);          start sliding to (300, 100) at speed 5 - your code keeps going,
+ *                                   so many things can slide at the same time */
+TT void glide(Thing th, double x, double y, double speed) {
+    _TT_TH(th);
+    _TtTurtle *t = &_tt.t[th];
+    t->goal_x = (float)x; t->goal_y = (float)y; t->move_speed = (float)speed; t->moving = 1;
+    if (speed <= 0) { t->x = (float)x; t->y = (float)y; t->moving = 0; }
+    _tt_show();
+}
+/* move_to(cat, 300, 100, 5);        slide there at speed 5, and WAIT until it gets there
+ *                                   (speed 1 = slow, 5 = normal, 20 = fast, 0 = instant) */
+TT void move_to(Thing th, double x, double y, double speed) {
+    _TT_TH(th);
+    glide(th, x, y, speed);
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    while (_tt.t[th].moving) _tt_wait_tick();
+    _tt.loop_mode = lm;
+}
+/* move_by(cat, 100, 0, 5);          slide 100 to the right (and wait) */
+TT void move_by(Thing th, double dx, double dy, double speed) { _TT_TH(th); move_to(th, _tt.t[th].x + dx, _tt.t[th].y + dy, speed); }
+
+/* rotate(cat, 45);                  turn it 45 degrees clockwise right away (-45 = the other way)
+ * rotate_to(cat, 90);               set the angle: 0 = normal, 90 = on its side ...
+ * spin(cat, 360, 5);                turn 360 degrees at speed 5, and WAIT until it's done
+ * start_spin(cat, 360, 5);          same, but your code keeps going */
+TT void rotate(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading -= (float)deg; _tt_show(); }
+TT void rotate_to(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading = -(float)deg; _tt.t[th].spinning = 0; _tt_show(); }
+TT void start_spin(Thing th, double deg, double speed) {
+    _TT_TH(th);
+    _tt.t[th].spin_left = -(float)deg; _tt.t[th].spin_speed = (float)speed; _tt.t[th].spinning = 1;
+    if (speed <= 0) { _tt.t[th].heading -= (float)deg; _tt.t[th].spinning = 0; }
+    _tt_show();
+}
+TT void spin(Thing th, double deg, double speed) {
+    _TT_TH(th);
+    start_spin(th, deg, speed);
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    while (_tt.t[th].spinning) _tt_wait_tick();
+    _tt.loop_mode = lm;
+}
+
+/* resize(cat, 2);   twice as big       hide_thing(cat);  show_thing(cat);
+ * x_of(cat), y_of(cat)   where it is   is_moving(cat)    still sliding or spinning? */
+TT void resize(Thing th, double scale) { _TT_TH(th); _tt.t[th].size = (float)scale; _tt_show(); }
+TT void hide_thing(Thing th) { _TT_TH(th); _tt.t[th].look = _TT_NONE; _tt_show(); }
+TT void show_thing(Thing th) { _TT_TH(th); _tt.t[th].look = _TT_PIC; _tt_show(); }
+TT float x_of(Thing th) { _TT_TH(th) 0; return _tt.t[th].x; }
+TT float y_of(Thing th) { _TT_TH(th) 0; return _tt.t[th].y; }
+TT int is_moving(Thing th) { _TT_TH(th) 0; return _tt.t[th].moving || _tt.t[th].spinning; }
+/* if (things_touch(cat, coin)) ...      two things overlapping */
+TT int things_touch(Thing a, Thing b) { int keep = _tt.cur; _tt.cur = a; int r = touching(b); _tt.cur = keep; return r; }
+/* drag_thing(cat);                      drag it with the mouse */
+TT void drag_thing(Thing th) { _TT_TH(th); _tt.t[th].drag = 1; }
 
 /* ============================================================ */
 /* MORE TURTLES                                                 */
@@ -1667,8 +1841,8 @@ TT void done(void) {
     _tt.loop_mode = 0;
     _tt_refresh();
     for (;;) {
-        while (_tt.dpy && !XPending(_tt.dpy) && _tt.focus) {      /* blink the text cursor */
-            struct timespec t = { 0, 50000000 }; nanosleep(&t, NULL);
+        while (_tt.dpy && !XPending(_tt.dpy) && (_tt.focus || _tt_animating())) {   /* cursor blink, gliding things */
+            struct timespec t = { 0, _tt_animating() ? 15000000 : 50000000 }; nanosleep(&t, NULL);
             _tt_refresh();
         }
         XEvent e;

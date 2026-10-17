@@ -133,6 +133,39 @@ const char *b = wait_button();          // waits, then gives back the words on t
 if (same(b, "Yes")) text("yay", 0, -60);
 ```
 
+## Move and spin things
+
+Make a picture or text into a **thing**, then slide it anywhere at any speed and rotate it.
+
+```c
+Thing cat   = add_image("cat.png", -300, 0);          // a picture you can move
+Thing title = add_text("{rainbow}Hello! 🐢", 0, 150);  // text you can move (uses textsize/bold/color)
+
+move_to(cat, 300, 0, 5);      // slide to (300, 0) at speed 5 - waits until it gets there
+move_by(cat, -100, 50, 5);    // slide 100 left and 50 up
+place(cat, 0, 0);             // jump there instantly
+
+rotate(cat, 45);              // turn 45 degrees clockwise (-45 = the other way)
+rotate_to(cat, 0);            // set the angle exactly
+spin(cat, 360, 6);            // spin all the way around at speed 6 - waits until done
+
+glide(cat, -300, 0, 4);       // start sliding but DON'T wait...
+start_spin(title, 360, 3);    // ...so this spins at the same time
+wait_for(3);
+
+change_text(title, "Score: %d", 10);   // new words
+resize(cat, 2);               // twice as big
+hide_thing(cat);  show_thing(cat);
+x_of(cat);  y_of(cat);        // where it is
+drag_thing(cat);              // drag it with the mouse
+if (things_touch(cat, title)) { ... }
+```
+
+Speed: `1` = slow, `5` = normal, `20` = fast, `0` = instant.
+`move_to` and `spin` **wait** until they're done. `glide` and `start_spin` **don't wait**, so lots of things can move at once.
+
+See `move.c`.
+
 ## Draw
 
 ```c
@@ -353,6 +386,7 @@ void home(void) {
 | `draw.c` | every way to draw: lines, shapes, fills, boxes, pictures |
 | `place.c` | buttons in every corner, with the coordinate grid |
 | `gallery.c` | pictures anywhere with `image()` |
+| `move.c` | slide and spin pictures and text with `move_to()`, `glide()`, `spin()` |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
 | `commands.c` | type words, new things appear |
@@ -382,6 +416,8 @@ box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill() 
 clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
 image("x.png", x, y)  image("x.png", x, y, scale)
+add_image("x.png", x, y)  add_text("...", x, y)  move_to(t, x, y, speed)  glide(t, x, y, speed)  move_by(t, dx, dy, speed)
+place(t, x, y)  rotate(t, deg)  rotate_to(t, deg)  spin(t, deg, speed)  start_spin(t, deg, speed)  change_text(t, "...")  resize(t, n)
 text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
