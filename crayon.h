@@ -8537,8 +8537,72 @@ TT int _tt_image_fail(int i, const char *file, const char *why) {
     return i;
 }
 
+/* ============================================================ */
+/* BUNDLE: put pictures, gifs, videos and sounds INSIDE the program */
+/*                                                              */
+/*   #include "crayon.h"                                        */
+/*   bundle("coin.png");          at the top, outside main      */
+/*   bundle("music.mp3");                                       */
+/*                                                              */
+/* gcc copies the files into the program when you compile, so   */
+/* you only have to share the program - no files next to it.    */
+/* ============================================================ */
+static struct { const char *name; const unsigned char *data; size_t len; char path[512]; } _tt_bundles[256];
+static int _tt_nbundles;
+static char _tt_bundle_dir[256];
+
+TT void _tt_bundle_cleanup(void) {
+    for (int i = 0; i < _tt_nbundles; i++) if (_tt_bundles[i].path[0]) unlink(_tt_bundles[i].path);
+    if (_tt_bundle_dir[0]) rmdir(_tt_bundle_dir);
+}
+TT void _tt_add_bundle(const char *name, const unsigned char *data, size_t len) {
+    if (_tt_nbundles >= 256) return;
+    if (_tt_nbundles == 0) atexit(_tt_bundle_cleanup);
+    _tt_bundles[_tt_nbundles].name = name;
+    _tt_bundles[_tt_nbundles].data = data;
+    _tt_bundles[_tt_nbundles].len = len;
+    _tt_bundles[_tt_nbundles].path[0] = 0;
+    _tt_nbundles++;
+}
+/* gives a real file path for a bundled file (unpacked once into a temporary folder), or NULL */
+TT const char *_tt_bundle_path(const char *name) {
+    for (int i = 0; i < _tt_nbundles; i++) {
+        if (strcmp(_tt_bundles[i].name, name) != 0) continue;
+        if (_tt_bundles[i].path[0]) return _tt_bundles[i].path;
+        if (!_tt_bundle_dir[0]) {
+            const char *base = getenv("XDG_RUNTIME_DIR");
+            snprintf(_tt_bundle_dir, sizeof _tt_bundle_dir, "%s/crayon-XXXXXX", base && *base ? base : "/tmp");
+            if (!mkdtemp(_tt_bundle_dir)) { _tt_bundle_dir[0] = 0; return NULL; }
+        }
+        char flat[200]; int k = 0;                                   /* "sprites/coin.png" -> "sprites_coin.png" */
+        for (const char *c = name; *c && k < 199; c++) flat[k++] = (*c == '/') ? '_' : *c;
+        flat[k] = 0;
+        snprintf(_tt_bundles[i].path, sizeof _tt_bundles[i].path, "%s/%d_%s", _tt_bundle_dir, i, flat);
+        FILE *f = fopen(_tt_bundles[i].path, "wb");
+        if (!f) { _tt_bundles[i].path[0] = 0; return NULL; }
+        fwrite(_tt_bundles[i].data, 1, _tt_bundles[i].len, f);
+        fclose(f);
+        return _tt_bundles[i].path;
+    }
+    return NULL;
+}
+#define _TT_CAT2(a, b) a##b
+#define _TT_CAT(a, b) _TT_CAT2(a, b)
+#define _TT_STR2(x) #x
+#define _TT_STR(x) _TT_STR2(x)
+#define _TT_BUNDLE(file, n) \
+    __asm__(".pushsection .rodata\n.balign 16\n_tt_bundle_" _TT_STR(n) "_start:\n.incbin \"" file "\"\n" \
+            "_tt_bundle_" _TT_STR(n) "_end:\n.byte 0\n.popsection\n"); \
+    extern const unsigned char _TT_CAT(_TT_CAT(_tt_bundle_, n), _start)[], _TT_CAT(_TT_CAT(_tt_bundle_, n), _end)[]; \
+    __attribute__((constructor)) static void _TT_CAT(_tt_bundle_reg_, n)(void) { \
+        _tt_add_bundle(file, _TT_CAT(_TT_CAT(_tt_bundle_, n), _start), \
+                       (size_t)(_TT_CAT(_TT_CAT(_tt_bundle_, n), _end) - _TT_CAT(_TT_CAT(_tt_bundle_, n), _start))); }
+#define bundle(file) _TT_BUNDLE(file, __COUNTER__)
+
 /* if the file isn't where you ran the program from, look next to the program itself */
 TT const char *_tt_find_file(const char *file, char *buf, size_t n) {
+    const char *b = _tt_bundle_path(file);                 /* bundled inside the program? */
+    if (b) return b;
     if (file[0] == '/' || access(file, R_OK) == 0) return file;
     char exe[512];
     ssize_t len = readlink("/proc/self/exe", exe, sizeof exe - 1);

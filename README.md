@@ -33,6 +33,37 @@ That's the whole program. No event loop, no setup code, no cleanup. The window s
 
 ---
 
+## 🔥 Share ONE file: `bundle()`
+
+This is the peak feature. Put one `bundle()` line at the top for each picture, gif, video or sound you use,
+and gcc packs them **inside** your program. Share just the program - no folder of files next to it.
+
+```c
+#include "crayon.h"
+
+bundle("turtle.png");       // one line per file, at the top, outside main
+bundle("coin.png");
+bundle("music.mp3");
+bundle("intro.mp4");
+
+int main(void) {
+    window(800, 600);
+    image("intro.mp4", 0, 0);       // your code stays exactly the same
+    sound("music.mp3");
+    player("turtle.png");
+    spawn("coin.png", 5);
+}
+```
+
+```sh
+gcc game.c -o game     # compile in the folder where the files are
+./game                 # now send just "game" to anyone
+```
+
+- The name in `bundle("...")` must match exactly what you use in `image()`, `sound()`, `player()` and so on.
+- Works for png, jpg, gif, webp, mp4/webm/mkv, mp3/wav/ogg - anything.
+- Videos, webp and sound still need `ffmpeg` installed on the computer that runs it.
+
 ## Install
 
 **Option 1 — keep it next to your code.** Put `crayon.h` in the same folder as your `.c` file and use quotes:
@@ -569,7 +600,7 @@ by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `so
 ## Cheat sheet
 
 ```
-window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()
+bundle("file")  window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()
 forward(n)  back(n)  left(deg)  right(deg)  face(deg)  go_to(x, y)  walk_to(x, y)  go_home()
 color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size)
 box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
