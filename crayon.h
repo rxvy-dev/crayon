@@ -8248,7 +8248,7 @@ typedef struct {
     TtFn fn;
     int x, y, w, h;                   /* in pixels, worked out when drawing */
 } _TtButton;
-typedef struct { float x, y; unsigned long c; int size, bold, center; char s[200]; } _TtText;
+typedef struct { float x, y; unsigned long c; int size, bold, center; char s[2048]; } _TtText;
 
 static struct {
     Display *dpy;
@@ -8978,9 +8978,31 @@ TT void _tt_refresh(void) {
     for (int i = 0; i < _tt.ntxt; i++) {
         _TtText *t = &_tt.txt[i];
         _TtFont *f = _tt_font(t->size, t->bold);
-        int x = _TT_SX(t->x);
-        if (t->center) x -= _tt_tagged(_tt.buf, f, 0, 0, t->c, t->s, 0) / 2;
-        _tt_tagged(_tt.buf, f, x, _TT_SY(t->y), t->c, t->s, 1);
+        int line_h = f->asc + f->desc + 2, ln = 0;
+        const char *p = t->s;
+        char carry[40] = "";                               /* color tag that carries to the next line */
+        for (;;) {                                         /* one line at a time ("\n" = new line) */
+            const char *nl = strchr(p, '\n');
+            char one[2048];
+            int n = nl ? (int)(nl - p) : (int)strlen(p);
+            int cl = (int)strlen(carry);
+            if (n > 2047 - cl) n = 2047 - cl;
+            memcpy(one, carry, (size_t)cl);
+            memcpy(one + cl, p, (size_t)n); one[cl + n] = 0;
+            for (const char *q = one; (q = strchr(q, '{')) != NULL; q++) {   /* remember the last color */
+                const char *e = strchr(q, '}');
+                if (!e || e - q > 24) continue;
+                char name[26]; int ok = 0;
+                memcpy(name, q + 1, (size_t)(e - q - 1)); name[e - q - 1] = 0;
+                _tt_color_name(name, &ok);
+                if (ok || _tt_ieq(name, "rainbow")) snprintf(carry, sizeof carry, "{%s}", name);
+            }
+            int x = _TT_SX(t->x);
+            if (t->center) x -= _tt_tagged(_tt.buf, f, 0, 0, t->c, one, 0) / 2;
+            _tt_tagged(_tt.buf, f, x, _TT_SY(t->y) + ln * line_h, t->c, one, 1);
+            if (!nl) break;
+            p = nl + 1; ln++;
+        }
     }
 
     /* 4. mouse coordinates */
@@ -9663,12 +9685,12 @@ TT void _tt_addtext(float x, float y, int center, const char *s) {
  * text("Score: %d", -300, 200, score);      numbers in the words
  *   Outside forever it stays on screen.  Inside forever, call it every frame. */
 TT void text(const char *fmt, double x, double y, ...) {
-    char b[200]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    char b[2048]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
     _tt_addtext((float)x, (float)y, 0, b);
 }
 /* text_center("Title", 0, 100);   same, but (x, y) is the MIDDLE of the words */
 TT void text_center(const char *fmt, double x, double y, ...) {
-    char b[200]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    char b[2048]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
     _tt_addtext((float)x, (float)y, 1, b);
 }
 /* say("Hi!");     words where the turtle is */
@@ -9860,7 +9882,7 @@ TT void oninput(TtFn fn) { _tt.oninput_fn = fn; }
 /* ============================================================ */
 /* THE CONSOLE  -  console();  then type turtle commands        */
 /* ============================================================ */
-TT int run(const char *line);
+TT int turtle_run(const char *line);
 TT int _tt_run1(const char *line) {
     char saved[200];
     memcpy(saved, _tt.entry, sizeof saved);
@@ -9932,8 +9954,8 @@ TT int _tt_run1(const char *line) {
     return ok;
 }
 
-/* run("repeat 4 forward 80; left 90");   run console commands from your code */
-TT int run(const char *line) {
+/* turtle_run("repeat 4 forward 80; left 90");   run console commands from your code */
+TT int turtle_run(const char *line) {
     _tt_check();
     while (*line == ' ') line++;
     if (!*line) return 1;
@@ -9945,7 +9967,7 @@ TT int run(const char *line) {
         int times = atoi(p), ok = 1;
         while (*p == ' ') p++;
         while (*p && *p != ' ') p++;
-        for (int i = 0; i < times && ok && !_tt.closed; i++) ok = run(p);
+        for (int i = 0; i < times && ok && !_tt.closed; i++) ok = turtle_run(p);
         return ok;
     }
     const char *semi = _tt_ieq(w, "button") ? NULL : strchr(line, ';');
@@ -9953,8 +9975,8 @@ TT int run(const char *line) {
         char first[200];
         int len = (int)(semi - line) < 199 ? (int)(semi - line) : 199;
         memcpy(first, line, (size_t)len); first[len] = 0;
-        int a = run(first);
-        return run(semi + 1) && a;
+        int a = turtle_run(first);
+        return turtle_run(semi + 1) && a;
     }
     char one[200];
     snprintf(one, sizeof one, "%s", line);
@@ -9979,7 +10001,7 @@ TT void _tt_submit(void) {
     _tt.msg[0] = 0;
     if (_tt.console_on && _tt.entry[0]) {
         char cmd[200]; snprintf(cmd, sizeof cmd, "%s", _tt.entry);
-        if (run(cmd)) { if (!_tt.msg[0]) snprintf(_tt.msg, sizeof _tt.msg, "> %.100s", cmd); }
+        if (turtle_run(cmd)) { if (!_tt.msg[0]) snprintf(_tt.msg, sizeof _tt.msg, "> %.100s", cmd); }
         else snprintf(_tt.msg, sizeof _tt.msg, "? \"%.40s\" - type help", word(0));
     }
     if (_tt.oninput_fn) _tt.oninput_fn();
@@ -10042,7 +10064,7 @@ TT int _tt_handle(XEvent *e) {
             TtFn fn = b->fn;
             char cmd[200]; snprintf(cmd, sizeof cmd, "%s", b->cmd);
             if (fn) fn();
-            if (cmd[0]) run(cmd);
+            if (cmd[0]) turtle_run(cmd);
             if (!_tt.loop_mode) { _tt.btn[bi].clicked = 0; _tt_refresh(); }
             break;
         }
@@ -10162,6 +10184,85 @@ TT void _tt_wait_tick(void) {
     _tt_refresh();
     struct timespec t = { 0, 15000000 }; nanosleep(&t, NULL);
 }
+
+/* ============================================================ */
+/* RUNNING COMMANDS                                             */
+/* ============================================================ */
+static struct { int status; char out[16384]; } _tt_cmd;
+
+TT const char *_tt_exec(const char *line) {
+    char cmd[4096];
+    snprintf(cmd, sizeof cmd, "%s 2>&1", line);
+    _tt_cmd.out[0] = 0;
+    _tt_cmd.status = -1;
+    FILE *p = popen(cmd, "r");
+    if (!p) return _tt_cmd.out;
+    int fd = fileno(p);
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    size_t len = 0;
+    for (;;) {                                             /* keep the window alive while it runs */
+        char chunk[4096];
+        ssize_t n = read(fd, chunk, sizeof chunk);
+        if (n > 0) {
+            for (ssize_t i = 0; i < n; i++) {
+                if (len >= sizeof _tt_cmd.out - 1) {        /* keep the END of long output */
+                    memmove(_tt_cmd.out, _tt_cmd.out + 4096, len - 4096);
+                    len -= 4096;
+                }
+                _tt_cmd.out[len++] = chunk[i];
+            }
+            continue;
+        }
+        if (n == 0) break;
+        if (_tt.dpy && !_tt.closed) _tt_wait_tick();
+        else { struct timespec t = { 0, 10000000 }; nanosleep(&t, NULL); }
+    }
+    int st = pclose(p);
+    _tt_cmd.status = WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+    while (len && (_tt_cmd.out[len - 1] == '\n' || _tt_cmd.out[len - 1] == '\r')) len--;
+    _tt_cmd.out[len] = 0;
+    return _tt_cmd.out;
+}
+
+/* run("ls -la");                         runs a command, WAITS for it, gives back what it printed
+ * run("pacman -Ss %s", word(1));         %s puts in a word - always as ONE quoted word, so typed
+ *                                        text can never sneak in extra commands
+ * const char *out = run("uname -r");     text(out, 0, 0);
+ * if (run_ok()) ...                      did the last command work? */
+TT const char *run(const char *fmt, ...) {
+    char line[4096];
+    size_t k = 0;
+    va_list a; va_start(a, fmt);
+    for (const char *f = fmt; *f && k < sizeof line - 1; f++) {
+        if (*f != '%') { line[k++] = *f; continue; }
+        f++;
+        char spec[32] = "%"; int sn = 1;
+        while (*f && strchr("0123456789.-+ #lhz", *f) && sn < 30) spec[sn++] = *f++;
+        if (!*f) break;
+        spec[sn++] = *f; spec[sn] = 0;
+        char piece[2048];
+        switch (*f) {
+        case 's': _tt_shell_quote(piece, sizeof piece, va_arg(a, const char *)); break;
+        case '%': strcpy(piece, "%"); break;
+        case 'c': piece[0] = 0; (void)va_arg(a, int); break;
+        case 'f': case 'g': case 'e': snprintf(piece, sizeof piece, spec, va_arg(a, double)); break;
+        default:
+            if (strchr(spec, 'l')) snprintf(piece, sizeof piece, spec, va_arg(a, long));
+            else snprintf(piece, sizeof piece, spec, va_arg(a, int));
+        }
+        size_t pl = strlen(piece);
+        if (k + pl >= sizeof line) break;
+        memcpy(line + k, piece, pl); k += pl;
+    }
+    va_end(a);
+    line[k] = 0;
+    return _tt_exec(line);
+}
+/* run_ok()        1 if the last command worked, 0 if it failed
+ * run_output()    what the last command printed */
+TT int run_ok(void) { return _tt_cmd.status == 0; }
+TT const char *run_output(void) { return _tt_cmd.out; }
+
 
 /* str("Hi %s, you are %d", name, age)   makes a piece of text (like Python f-strings) */
 TT const char *str(const char *fmt, ...) {

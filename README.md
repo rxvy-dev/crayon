@@ -271,6 +271,7 @@ text("{rainbow}Rainbow!", 0, -50);                // every letter a different co
 text("Hi 😀 🐢 🔥", 0, -100);                       // emoji work too (in text and buttons)
 text("Score: %d", -200, 150, score);              // numbers inside
 text_center("Title", 0, 150);                     // centered on x, y
+text("line one\nline two", 0, 100);               // \n = new line
 textsize(40);
 bold(1);
 ```
@@ -326,6 +327,22 @@ void settings(void) {
 
 Every page is just a function. A button or link says which one to open next.
 That's how the search engine example below is built.
+
+## Run commands
+
+```c
+const char *out = run("uname -r");          // runs it, waits, gives back what it printed
+text(out, -300, 100);                       // multi-line output shows on multiple lines
+
+run("pacman -Ss %s", word(1));              // %s puts in a word the user typed
+run("sudo pacman -S %s", input);            // sudo asks for the password in the terminal
+
+if (run_ok()) text("{green}worked!", 0, 0);
+else          text("{red}%s", 0, 0, run_output());   // show the error
+```
+
+Every `%s` goes in as **one quoted word**, so whatever someone types can't sneak in extra commands
+(`x; rm -rf ~` stays just text). `%d` works for numbers. The window keeps working while a command runs.
 
 ## Games
 
@@ -467,6 +484,7 @@ userinput("question")  userinput("question", x, y)  numberinput("question")  pic
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
+run("cmd %s", word)  run_ok()  run_output()
 forever { }  key(k) { }  press(k) { }  mouse_x()  mouse_y()  rnd(a, b)  wait_for(sec)
 ```
 
