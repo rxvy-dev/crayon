@@ -31,6 +31,31 @@ That's the whole program. No event loop, no setup code, no cleanup. The window s
 
 ---
 
+## Install
+
+**Option 1 — keep it next to your code.** Put `crayon.h` in the same folder as your `.c` file and use quotes:
+
+```c
+#include "crayon.h"
+```
+
+**Option 2 — install it once, use it everywhere.** Then you can use `<crayon.h>` from any folder:
+
+```sh
+sudo cp crayon.h /usr/local/include/
+```
+
+```c
+#include <crayon.h>
+```
+
+> `<crayon.h>` with angle brackets only works if it's installed (option 2), or if you compile with
+> `gcc main.c -o main -I.` &nbsp;•&nbsp; You don't need `#include <stdio.h>` or `<string.h>` — crayon already includes them.
+
+Put your `.png` pictures in the folder you run the program from.
+
+---
+
 ## Why crayon?
 
 Most C graphics libraries make you write 50 lines before you see a single pixel —
@@ -170,6 +195,54 @@ Also: `touching(coin)`, `draggable()`, `clicked()`, `mouse_x()`, `rnd(1, 6)`.
 
 ---
 
+## Example: an "ask me anything" bot
+
+A `while` loop + `userinput()` + `strstr()` = a chatbot. `strstr` checks if a word is anywhere in what
+they typed, so "what is linux" still matches `"linux"`.
+
+```c
+#include "crayon.h"
+
+void page(void) {
+    clear();                                   // wipe the old answer
+    image("turtle.png", 0, 120, 2);
+    textsize(22);
+    text_center("{white}Ask the turtle anything!", 0, 40);
+}
+
+int main(void) {
+    window(1000, 500);
+    background("black");
+    page();
+
+    while (1) {
+        const char *input = userinput("?:");
+        page();                                // fresh screen for every question
+
+        textsize(20);
+        if (strstr(input, "gnu"))
+            text_center("{white}GNU is free software you can use, change and share.", 0, -100);
+        else if (strstr(input, "linux"))
+            text_center("{white}Linux is a kernel made by {yellow}Linus Torvalds{white}.", 0, -100);
+        else
+            text_center("{gray}I don't know \"%s\" yet", 0, -100, input);
+    }
+}
+```
+
+<img src="screenshots/ask.png" width="640">
+
+**Why the `page()` function?** Text stays on the screen until you `clear()` it. Without clearing,
+every new answer would be drawn on top of the last one. `clear()` wipes everything, so `page()`
+draws the picture and title again before each answer.
+
+Tips:
+- `strstr` cares about capitals — `"Linux"` won't match `"linux"`. Use `same(input, "linux")` for an exact match that ignores capitals.
+- Always end with an `else` so the bot answers something even when it doesn't know the word.
+- Closing the window ends the program, even inside `while (1)`.
+
+---
+
 ## Example: a search engine in ~150 lines
 
 `search.c` is a pretend search engine called **Turtlr**: home page, search box, buttons,
@@ -203,6 +276,7 @@ void home(void) {
 | `square.c` | the classic square |
 | `gallery.c` | pictures anywhere with `image()` |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
+| `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
 | `commands.c` | type words, new things appear |
 | `pictures.c` | a picture pen and an arrow pen drawing together |
 | `game.c` | a small arcade game |
