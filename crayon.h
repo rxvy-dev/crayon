@@ -159,6 +159,7 @@ static struct {
     int   (*color)(Display *, Visual *, Colormap, const _tt_rcolor *, _tt_xcolor *);
     void  (*str)(void *, const _tt_xcolor *, void *, int, int, const unsigned char *, int);
     void  (*extents)(Display *, void *, const unsigned char *, int, _tt_glyph *);
+    int   (*exists)(Display *, void *, unsigned int);
 } _tt_xft;
 
 /* PNG pictures (libpng) */
@@ -229,7 +230,7 @@ typedef struct {
 } _TtTurtle;
 
 typedef struct { char name[256]; int w, h; unsigned char *px; } _TtImage;
-typedef struct { int size, bold; void *xft; XFontStruct *core; int asc, desc; } _TtFont;
+typedef struct { int size, bold; void *xft; XFontStruct *core; int asc, desc; void *emoji; int emoji_tried; } _TtFont;
 typedef struct {
     char label[96]; char cmd[200];
     float cx, cy;
@@ -315,6 +316,7 @@ TT void _tt_load_xft(void) {
     *(void **)&_tt_xft.color       = dlsym(h, "XftColorAllocValue");
     *(void **)&_tt_xft.str         = dlsym(h, "XftDrawStringUtf8");
     *(void **)&_tt_xft.extents     = dlsym(h, "XftTextExtentsUtf8");
+    *(void **)&_tt_xft.exists      = dlsym(h, "XftCharExists");
     _tt_xft.ok = _tt_xft.open && _tt_xft.draw_create && _tt_xft.color && _tt_xft.str && _tt_xft.extents;
 }
 
@@ -344,19 +346,81 @@ TT _TtFont *_tt_font(int size, int bold) {
     _tt.fonts[_tt.nfonts] = f;
     return &_tt.fonts[_tt.nfonts++];
 }
+/* reads one UTF-8 letter (or emoji) and says how many bytes it used */
+TT unsigned _tt_utf8(const unsigned char *p, int *len) {
+    if (p[0] < 0x80) { *len = 1; return p[0]; }
+    if ((p[0] & 0xE0) == 0xC0 && p[1]) { *len = 2; return (unsigned)(p[0] & 0x1F) << 6 | (p[1] & 0x3F); }
+    if ((p[0] & 0xF0) == 0xE0 && p[1] && p[2]) { *len = 3; return (unsigned)(p[0] & 0x0F) << 12 | (unsigned)(p[1] & 0x3F) << 6 | (p[2] & 0x3F); }
+    if ((p[0] & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+        *len = 4; return (unsigned)(p[0] & 0x07) << 18 | (unsigned)(p[1] & 0x3F) << 12 | (unsigned)(p[2] & 0x3F) << 6 | (p[3] & 0x3F);
+    }
+    *len = 1; return p[0];
+}
+
+/* a second font for emoji, used when the normal font doesn't have a character */
+TT void *_tt_emoji_font(_TtFont *f) {
+    if (f->emoji_tried) return f->emoji;
+    f->emoji_tried = 1;
+    if (!_tt_xft.exists) return NULL;
+    const char *names[] = { "Noto Color Emoji", "Twemoji", "JoyPixels", "emoji", "Symbola" };
+    char name[120];
+    for (unsigned i = 0; i < sizeof names / sizeof *names; i++) {
+        snprintf(name, sizeof name, "%s:pixelsize=%d", names[i], f->size);
+        void *e = _tt_xft.open(_tt.dpy, DefaultScreen(_tt.dpy), name);
+        if (e && _tt_xft.exists(_tt.dpy, e, 0x1F600)) { f->emoji = e; break; }
+    }
+    return f->emoji;
+}
+
+/* draws (or just measures, when d is 0) text, switching to the emoji font where needed */
+TT int _tt_xrun(Drawable d, _TtFont *f, int x, int y, const _tt_xcolor *col, const char *s) {
+    int x0 = x;
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        const unsigned char *start = p;
+        void *font = NULL;
+        while (*p) {                                       /* a run of letters that use the same font */
+            int len;
+            unsigned ch = _tt_utf8(p, &len);
+            void *want = f->xft;
+            if (ch >= 0x80 && _tt_xft.exists && !_tt_xft.exists(_tt.dpy, f->xft, ch)) {
+                void *e = _tt_emoji_font(f);
+                if (e && _tt_xft.exists(_tt.dpy, e, ch)) want = e;
+            }
+            if (ch == 0xFE0F || ch == 0x200D) want = font ? font : want;   /* emoji joiners stay with the emoji */
+            if (font && want != font) break;
+            font = want;
+            p += len;
+        }
+        int n = (int)(p - start);
+        _tt_glyph g;
+        _tt_xft.extents(_tt.dpy, font, start, n, &g);
+        if (d) {
+            void *xd = d == _tt.canvas ? _tt.xd_canvas : _tt.xd_buf;
+            int yy = y;
+            if (font != f->xft) {                          /* line emoji up with the words */
+                _tt_xfont *ef = (_tt_xfont *)font;
+                yy = y + (ef->ascent - ef->descent - (f->asc - f->desc)) / 2;
+            }
+            _tt_xft.str(xd, col, font, x, yy, start, n);
+        }
+        x += g.xOff;
+    }
+    return x - x0;
+}
+
 TT int _tt_tw(_TtFont *f, const char *s) {
     int n = (int)strlen(s);
-    if (f->xft) { _tt_glyph g; _tt_xft.extents(_tt.dpy, f->xft, (const unsigned char *)s, n, &g); return g.xOff; }
+    if (f->xft) return _tt_xrun(0, f, 0, 0, NULL, s);
     return f->core ? XTextWidth(f->core, s, n) : n * 8;
 }
 TT void _tt_str(Drawable d, _TtFont *f, int x, int y, unsigned long c, const char *s) {
     if (f->xft) {
-        void *xd = d == _tt.canvas ? _tt.xd_canvas : _tt.xd_buf;
         _tt_rcolor rc = { (unsigned short)(((c >> 16) & 255) * 257), (unsigned short)(((c >> 8) & 255) * 257),
                           (unsigned short)((c & 255) * 257), 0xFFFF };
         _tt_xcolor col;
         _tt_xft.color(_tt.dpy, _tt.vis, _tt.cmap, &rc, &col);
-        _tt_xft.str(xd, &col, f->xft, x, y, (const unsigned char *)s, (int)strlen(s));
+        _tt_xrun(d, f, x, y, &col, s);
     } else {
         if (f->core) XSetFont(_tt.dpy, _tt.gc, f->core->fid);
         XSetForeground(_tt.dpy, _tt.gc, c);
@@ -600,7 +664,10 @@ TT int _tt_tagged(Drawable d, _TtFont *f, int x, int y, unsigned long c, const c
         }
         if (rainbow && *p != ' ') {
             _TT_FLUSH();
-            char one[2] = { *p, 0 };
+            int clen; _tt_utf8((const unsigned char *)p, &clen);
+            char one[8] = {0};
+            memcpy(one, p, (size_t)clen);
+            p += clen - 1;
             if (draw) _tt_str(d, f, x, y, rb[ri % 7], one);
             x += _tt_tw(f, one);
             ri++;

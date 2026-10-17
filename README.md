@@ -192,6 +192,7 @@ repeat(5) { forward(150); right(144); }
 text("Hello", -200, 100);                         // words, x, y
 text("{red}G{yellow}o{blue}o{green}d", 0, 0);     // a color for each part
 text("{rainbow}Rainbow!", 0, -50);                // every letter a different color
+text("Hi 😀 🐢 🔥", 0, -100);                       // emoji work too (in text and buttons)
 text("Score: %d", -200, 150, score);              // numbers inside
 text_center("Title", 0, 150);                     // centered on x, y
 textsize(40);
@@ -364,6 +365,8 @@ gcc search.c -o search && ./search
 ```
 
 ## Requirements
+
+Emoji need an emoji font installed (most desktops have one; on Arch: `sudo pacman -S noto-fonts-emoji`).
 
 Linux with X11 or Wayland (XWayland). Uses `libX11`, `libpng` and (optionally) `libXft`
 for smooth text — all already on any normal desktop Linux. They're loaded at runtime,
