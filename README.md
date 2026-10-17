@@ -397,6 +397,26 @@ That's the whole game - it starts by itself at the end of `main`.
 
 See `coins.c`.
 
+### Enemies, health and hearts (only if you want them)
+
+```c
+enemies("ghost.png", 3);                      // 3 ghosts chase you and bite (10 damage)
+enemies("ghost.png", 3, 1.5, 20);             // speed 1.5, 20 damage a bite
+shoots("ghost.png", "fireball.png");          // they shoot at you every 2 seconds
+shoots("ghost.png", "fireball.png", 1, 15);   // every 1 second, 15 damage
+
+health(100);                                  // a health bar in the top-right
+hearts(5);                                    // 5 hearts (each hit takes one)
+hearts(3, "heart.png");                       // with your own heart picture
+// use health() AND hearts() together: an empty bar costs a heart and refills
+
+hurt(10);  heal(25);  health_left()           // do it yourself from any function
+```
+
+<img src="screenshots/battle.png" width="520">
+
+After a hit you blink and can't be hurt for a moment. `ghost.png`, `fireball.png` and `heart.png` are in the repo. See `battle.c`.
+
 ## Games (with forever)
 
 ```c
@@ -505,6 +525,7 @@ void home(void) {
 | `commands.c` | type words, new things appear |
 | `pictures.c` | a picture pen and an arrow pen drawing together |
 | `coins.c` | a full coin game with no loops: `player()`, `spawn()`, `on_touch()` |
+| `battle.c` | ghosts that chase and shoot, with a health bar |
 | `game.c` | a small arcade game |
 | `search.c` | Turtlr, the pretend search engine |
 
@@ -547,6 +568,7 @@ new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
 run("cmd %s", word)  run_ok()  run_output()
 player("x.png")  spawn("x.png", n)  on_touch("x.png", fn)  respawn()  remove_it()  chase("x.png", s)
 add_score(n)  show_score()  lives(n)  lose_life()  game_over("..")  you_win("..")
+enemies("x.png", n, speed, damage)  shoots("x.png", "bullet.png", sec, damage)  health(n)  hearts(n, "x.png")  hurt(n)  heal(n)
 forever { }  key(k) { }  press(k) { }  mouse_x()  mouse_y()  rnd(a, b)  wait_for(sec)
 ```
 

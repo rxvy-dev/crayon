@@ -8227,7 +8227,8 @@ typedef struct {
     float x, y, heading;
     int pen, thick, look, img, has_pic, flip, upright, drag, filling, nfill;
     int moving, spinning; float goal_x, goal_y, move_speed, spin_left, spin_speed;
-    int is_thing, dead;
+    int is_thing, dead, hud, bullet, dmg;
+    float vx, vy;
     float size;
     unsigned long color;
     XPoint *fill;                    /* only while filling */
@@ -8250,6 +8251,7 @@ typedef struct {
     int x, y, w, h;                   /* in pixels, worked out when drawing */
 } _TtButton;
 typedef struct { float x, y; unsigned long c; int size, bold, center; char s[2048]; } _TtText;
+typedef struct { int x, y, w, h, r; unsigned long c; } _TtHud;
 
 static struct {
     Display *dpy;
@@ -8285,6 +8287,8 @@ static struct {
     int nbtn, nbar;
 
     _TtText txt[_TT_MAXTXT];
+    _TtHud hud[16];
+    int nhud;
     int ntxt;
 
     /* the text box */
@@ -9041,7 +9045,8 @@ TT void _tt_refresh(void) {
         for (int i = 0; i < 3; i++) XDrawLine(d, _tt.buf, _tt.gc, p[i].x, p[i].y, p[i + 1].x, p[i + 1].y);
     }
 
-    /* 3. text */
+    /* 3. health bars and other boxes for this frame, then text */
+    for (int i = 0; i < _tt.nhud; i++) _tt_rrect(_tt.buf, _tt.hud[i].x, _tt.hud[i].y, _tt.hud[i].w, _tt.hud[i].h, _tt.hud[i].r, _tt.hud[i].c, 1);
     for (int i = 0; i < _tt.ntxt; i++) {
         _TtText *t = &_tt.txt[i];
         _TtFont *f = _tt_font(t->size, t->bold);
@@ -10206,6 +10211,7 @@ TT int update(void) {
     _tt.loop_mode = 1;
     _tt_refresh();
     _tt.ntxt = 0;
+    _tt.nhud = 0;
 
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -10532,6 +10538,7 @@ TT void dark_mode(void) {
 static struct {
     int active, player, over, score, show_score, tank, lives, show_lives;
     long safe_until;
+    int start_lives;
     float speed;
     struct { int img; TtFn fn; } rules[_TT_MAXRULES];
     int nrules;
@@ -10542,7 +10549,7 @@ static struct {
     int it;
     char over_text[100];
     unsigned long over_color;
-} _tt_game = { 0, -1, 0, 0, 0, 0, 0, 0, 0, 5, {{0, 0}}, 0, {{0, 0}}, 0, {{0, 0}}, 0, -1, "", 0 };
+} _tt_game = { .player = -1, .speed = 5, .it = -1 };
 
 TT void _tt_random_spot(float *x, float *y) {
     float px = 99999, py = 99999;
@@ -10645,7 +10652,7 @@ TT void spin_all(const char *file, float speed) {
 TT void add_score(int n) { _tt_game.score += n; }
 TT int score(void) { return _tt_game.score; }
 TT void show_score(void) { _tt_game.show_score = 1; }
-TT void lives(int n) { _tt_game.lives = n; _tt_game.show_lives = 1; }
+TT void lives(int n) { _tt_game.lives = _tt_game.start_lives = n; _tt_game.show_lives = 1; }
 TT int lives_left(void) { return _tt_game.lives; }
 
 /* game_over("You lost!");   big message, everything stops.  Press SPACE to play again.
@@ -10667,16 +10674,196 @@ TT void lose_life(void) {
     if (_tt_game.lives <= 0 && _tt_game.show_lives) game_over("GAME OVER");
 }
 
+TT void _tt_combat_restart(void);
 TT void _tt_game_restart(void) {
     _tt_game.over = 0; _tt_game.score = 0; _tt_game.safe_until = frames() + 60;
     if (_tt_game.player >= 0) _tt.t[_tt_game.player].look = _TT_PIC;
-    if (_tt_game.show_lives && _tt_game.lives <= 0) _tt_game.lives = 3;
+    if (_tt_game.show_lives && _tt_game.lives <= 0) _tt_game.lives = _tt_game.start_lives > 0 ? _tt_game.start_lives : 3;
+    _tt_combat_restart();
     for (int i = 0; i < _tt.nt; i++) {
         _TtTurtle *t = &_tt.t[i];
-        if (!t->is_thing) continue;
+        if (!t->is_thing || t->hud) continue;
+        if (t->bullet) { t->dead = 1; t->look = _TT_NONE; continue; }
         if (i == _tt_game.player) { t->x = 0; t->y = 0; continue; }
         if (t->dead && t->img >= 0) { t->dead = 0; t->look = _TT_PIC; }
         float x, y; _tt_random_spot(&x, &y); t->x = x; t->y = y;
+    }
+}
+
+
+/* ============================================================ */
+/* COMBAT: enemies that hurt you, shooting, health and hearts   */
+/* (all optional - nothing happens unless you call these)       */
+/*                                                              */
+/*   health(100);                         a health bar          */
+/*   hearts(5);  hearts(5, "heart.png");  hearts instead        */
+/*   enemies("ghost.png", 3);             3 ghosts chase + hurt */
+/*   shoots("ghost.png", "fireball.png"); they shoot at you     */
+/* ============================================================ */
+static struct {
+    int health_on, health, health_max;
+    int heart_img, heart_th[20], nheart_th;
+    struct { int img; float speed; int damage; } enemy[16];
+    int nenemy;
+    struct { int img, bullet_img, every, damage; float speed; } shooter[16];
+    int nshooter;
+} _tt_cb = { 0, 0, 0, -1, {0}, 0, {{0, 0, 0}}, 0, {{0, 0, 0, 0, 0}}, 0 };
+
+/* health(100);     a health bar in the top-right, starting full. 0 health = game over */
+TT void health(int max) { _tt_cb.health_on = 1; _tt_cb.health = _tt_cb.health_max = max > 0 ? max : 100; _tt_game.active = 1; }
+TT int health_left(void) { return _tt_cb.health_on ? _tt_cb.health : _tt_game.lives; }
+
+/* hearts(5);                 5 hearts (each hit takes one)
+ * hearts(5, "heart.png");    with your own heart picture */
+TT void _tt_hearts2(int n, const char *file) {
+    lives(n);
+    _tt_game.active = 1;
+    if (file) _tt_cb.heart_img = _tt_image(file);
+}
+TT void _tt_hearts1(int n) { _tt_hearts2(n, NULL); }
+#define hearts(...) _TT_PICK2(__VA_ARGS__, _tt_hearts2, _tt_hearts1, 0)(__VA_ARGS__)
+
+/* hurt(10);  heal(10);       take damage / get health back (with hearts, any hurt = 1 heart) */
+TT void hurt(int amount) {
+    if (_tt_game.over || frames() < _tt_game.safe_until) return;
+    if (_tt_cb.health_on) {
+        _tt_game.safe_until = frames() + 50;                 /* a short safe blink */
+        _tt_cb.health -= amount;
+        if (_tt_cb.health <= 0) {
+            if (_tt_game.show_lives && _tt_game.lives > 1) {   /* hearts AND health: lose a heart, refill */
+                _tt_game.lives--;
+                _tt_cb.health = _tt_cb.health_max;
+                _tt_game.safe_until = frames() + 90;
+            } else {
+                if (_tt_game.show_lives) _tt_game.lives = 0;
+                _tt_cb.health = 0;
+                game_over("GAME OVER");
+            }
+        }
+    } else lose_life();
+}
+TT void heal(int amount) {
+    if (_tt_cb.health_on) { _tt_cb.health += amount; if (_tt_cb.health > _tt_cb.health_max) _tt_cb.health = _tt_cb.health_max; }
+    else if (_tt_game.show_lives) _tt_game.lives += amount > 0 ? 1 : 0;
+}
+
+/* enemies("ghost.png", 3);            3 ghosts that chase you and hurt you when they touch you
+ * enemies("ghost.png", 3, 2, 20);     speed 2, 20 damage a hit (normal: speed 1.2, 10 damage) */
+TT void _tt_enemies4(const char *file, int how_many, double speed, int damage) {
+    _tt_check();
+    _tt_game.active = 1;
+    if (_tt_cb.nenemy < 16) {
+        _tt_cb.enemy[_tt_cb.nenemy].img = _tt_image(file);
+        _tt_cb.enemy[_tt_cb.nenemy].speed = (float)speed;
+        _tt_cb.enemy[_tt_cb.nenemy].damage = damage;
+        _tt_cb.nenemy++;
+    }
+    spawn(file, how_many);
+}
+TT void _tt_enemies2(const char *file, int how_many) { _tt_enemies4(file, how_many, 1.2, 10); }
+TT void _tt_enemies3(const char *file, int how_many, double speed) { _tt_enemies4(file, how_many, speed, 10); }
+#define enemies(...) _TT_PICK4(__VA_ARGS__, _tt_enemies4, _tt_enemies3, _tt_enemies2, 0)(__VA_ARGS__)
+
+/* shoots("ghost.png", "fireball.png");            every ghost shoots fireballs at you
+ * shoots("ghost.png", "fireball.png", 1.5, 10);   one every 1.5 seconds, 10 damage */
+TT void _tt_shoots4(const char *who, const char *bullet, double seconds, int damage) {
+    _tt_check();
+    _tt_game.active = 1;
+    if (_tt_cb.nshooter >= 16) return;
+    _tt_cb.shooter[_tt_cb.nshooter].img = _tt_image(who);
+    _tt_cb.shooter[_tt_cb.nshooter].bullet_img = _tt_image(bullet);
+    _tt_cb.shooter[_tt_cb.nshooter].every = (int)(seconds * 60) > 10 ? (int)(seconds * 60) : 10;
+    _tt_cb.shooter[_tt_cb.nshooter].damage = damage;
+    _tt_cb.shooter[_tt_cb.nshooter].speed = 5;
+    _tt_cb.nshooter++;
+}
+TT void _tt_shoots2(const char *who, const char *bullet) { _tt_shoots4(who, bullet, 2, 10); }
+TT void _tt_shoots3(const char *who, const char *bullet, double seconds) { _tt_shoots4(who, bullet, seconds, 10); }
+#define shoots(...) _TT_PICK4(__VA_ARGS__, _tt_shoots4, _tt_shoots3, _tt_shoots2, 0)(__VA_ARGS__)
+
+TT void _tt_combat_restart(void) {
+    if (_tt_cb.health_on) _tt_cb.health = _tt_cb.health_max;
+}
+
+/* runs every frame: enemies chase and bite, shooters shoot, bullets fly */
+TT void _tt_combat_step(void) {
+    int p = _tt_game.player;
+    if (p < 0 || _tt.t[p].dead) return;
+    _TtTurtle *pl = &_tt.t[p];
+    int n = _tt.nt;
+    for (int i = 0; i < n; i++) {
+        _TtTurtle *t = &_tt.t[i];
+        if (!t->is_thing || t->dead || t->hud || i == p) continue;
+        if (t->bullet) {                                        /* fly; hit the player or leave the screen */
+            t->x += t->vx; t->y += t->vy;
+            if (t->x < -_tt.W / 2.0f - 50 || t->x > _tt.W / 2.0f + 50 || t->y < -_tt.H / 2.0f - 50 || t->y > _tt.H / 2.0f + 50) {
+                t->dead = 1; t->look = _TT_NONE; continue;
+            }
+            if (things_touch(p, i)) { hurt(t->dmg); t->dead = 1; t->look = _TT_NONE; }
+            continue;
+        }
+        for (int e = 0; e < _tt_cb.nenemy; e++) {
+            if (t->img != _tt_cb.enemy[e].img) continue;
+            float dx = pl->x - t->x, dy = pl->y - t->y, d = _tt_sqrt(dx * dx + dy * dy);
+            if (d > 1) { t->x += dx / d * _tt_cb.enemy[e].speed; t->y += dy / d * _tt_cb.enemy[e].speed; }
+            t->flip = dx < 0;
+            if (things_touch(p, i)) {
+                hurt(_tt_cb.enemy[e].damage);
+                if (d > 1) { t->x -= dx / d * 90; t->y -= dy / d * 90; }      /* knocked back */
+            }
+        }
+        for (int s = 0; s < _tt_cb.nshooter; s++) {
+            if (t->img != _tt_cb.shooter[s].img) continue;
+            if ((frames() + i * 23) % _tt_cb.shooter[s].every) continue;
+            float dx = pl->x - t->x, dy = pl->y - t->y, d = _tt_sqrt(dx * dx + dy * dy);
+            if (d < 1) continue;
+            int old, b = _tt_thing_slot(&old);
+            _tt_setup_thing(b, _tt_cb.shooter[s].bullet_img, t->x, t->y);
+            _tt.t[b].bullet = 1;
+            _tt.t[b].vx = dx / d * _tt_cb.shooter[s].speed;
+            _tt.t[b].vy = dy / d * _tt_cb.shooter[s].speed;
+            _tt.t[b].dmg = _tt_cb.shooter[s].damage;
+            _tt.t[b].heading = _tt_atan2d(dy, dx);
+        }
+    }
+}
+
+/* the health bar / picture hearts in the top-right */
+TT void _tt_combat_hud(void) {
+    float top = _tt.H / 2.0f - 22, right = _tt.W / 2.0f - 20;
+    if (_tt_game.show_lives && _tt_cb.heart_img >= 0) {            /* your own heart picture */
+        _TtImage *g = &_tt.img[_tt_cb.heart_img];
+        float sc = 32.0f / (g->h > g->w ? g->h : g->w);
+        while (_tt_cb.nheart_th < 20 && _tt_cb.nheart_th < _tt_game.lives + 3) {
+            int old, th = _tt_thing_slot(&old);
+            int keep_last = _tt_game.it;
+            _tt_setup_thing(th, _tt_cb.heart_img, 0, 0);
+            _tt_game.it = keep_last;
+            _tt.t[th].hud = 1; _tt.t[th].size = sc; _tt.t[th].upright = 1;
+            _tt_cb.heart_th[_tt_cb.nheart_th++] = th;
+        }
+        for (int k = 0; k < _tt_cb.nheart_th; k++) {
+            _TtTurtle *h = &_tt.t[_tt_cb.heart_th[k]];
+            h->x = right - 16 - k * 38; h->y = top - 2;
+            h->look = k < _tt_game.lives && !h->dead ? _TT_PIC : _TT_NONE;
+        }
+        top -= 44;
+    } else if (_tt_game.show_lives) top -= 44;                      /* emoji hearts are drawn by the game */
+    if (_tt_cb.health_on) {
+        int w = 240, h = 24;
+        int x = (int)(_tt.W / 2.0f + right) - w, y = (int)(_tt.H / 2.0f - top) - 4;
+        float k = _tt_cb.health_max ? (float)_tt_cb.health / _tt_cb.health_max : 0;
+        unsigned long col = k > 0.5f ? 0x2ECC71 : k > 0.25f ? 0xF1C40F : 0xE74C3C;
+        if (_tt.nhud + 3 <= 16) {
+            _tt.hud[_tt.nhud++] = (_TtHud){ x - 3, y - 3, w + 6, h + 6, 10, 0x111111 };
+            _tt.hud[_tt.nhud++] = (_TtHud){ x, y, w, h, 8, 0x3a3a3a };
+            if (k > 0) _tt.hud[_tt.nhud++] = (_TtHud){ x, y, (int)(w * k) > 16 ? (int)(w * k) : 16, h, 8, col };
+        }
+        int keep = _tt.cur; _tt.cur = 0;
+        unsigned long oc = _TT_T->color; int os = _tt.tsize, ob = _tt.tbold;
+        textsize(16); bold(1); _TT_T->color = WHITE;
+        text_center("%d / %d", right - w / 2.0f, top - 14, _tt_cb.health, _tt_cb.health_max);
+        textsize(os); bold(ob); _TT_T->color = oc; _tt.cur = keep;
     }
 }
 
@@ -10712,7 +10899,7 @@ TT void _tt_game_step(void) {
         }
         for (int i = 0; i < _tt.nt; i++) {
             _TtTurtle *t = &_tt.t[i];
-            if (!t->is_thing || t->dead || t->look == _TT_NONE || i == p) continue;
+            if (!t->is_thing || t->dead || t->look == _TT_NONE || t->hud || t->bullet || i == p) continue;
             for (int c = 0; c < _tt_game.nchase; c++)
                 if (t->img == _tt_game.chasers[c].img && p >= 0) {
                     float dx = _tt.t[p].x - t->x, dy = _tt.t[p].y - t->y, d = _tt_sqrt(dx * dx + dy * dy);
@@ -10722,10 +10909,11 @@ TT void _tt_game_step(void) {
             for (int k = 0; k < _tt_game.nspin; k++)
                 if (t->img == _tt_game.spinners[k].img) t->heading -= _tt_game.spinners[k].deg;
         }
+        _tt_combat_step();
         if (p >= 0 && !_tt.t[p].dead) {
             for (int i = 0; i < _tt.nt && !_tt_game.over; i++) {
                 _TtTurtle *t = &_tt.t[i];
-                if (!t->is_thing || t->dead || t->look == _TT_NONE || i == p) continue;
+                if (!t->is_thing || t->dead || t->look == _TT_NONE || t->hud || i == p) continue;
                 for (int r = 0; r < _tt_game.nrules; r++)
                     if (t->img == _tt_game.rules[r].img && things_touch(p, i)) {
                         _tt_game.it = i;
@@ -10744,11 +10932,12 @@ TT void _tt_game_step(void) {
     textsize(32); bold(1);
     _TT_T->color = _tt_light(_tt.bg) ? 0x222222 : WHITE;
     if (_tt_game.show_score) text("Score: %d", -_tt.W / 2.0f + 20, _tt.H / 2.0f - 45, _tt_game.score);
-    if (_tt_game.show_lives) {
+    if (_tt_game.show_lives && _tt_cb.heart_img < 0) {
         char hearts[64] = "";
         for (int i = 0; i < _tt_game.lives && i < 10; i++) strcat(hearts, "❤️");
         text("%s", _tt.W / 2.0f - 20 - text_width(hearts), _tt.H / 2.0f - 45, hearts);
     }
+    _tt_combat_hud();
     if (_tt_game.over) {
         textsize(80);
         _TT_T->color = _tt_game.over_color;
