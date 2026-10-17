@@ -8111,7 +8111,8 @@ typedef int Turtle;
     F(XCopyArea) F(XSetLineAttributes) F(XFillPolygon) F(XDrawLine) \
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
-    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty)
+    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty) \
+    F(XSetClipRectangles) F(XSetClipMask)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8157,6 +8158,8 @@ TT void _tt_loadx(void) {
 #define XGetImage           (_xl.XGetImage)
 #define XPutImage           (_xl.XPutImage)
 #define XPending            (_xl.XPending)
+#define XSetClipRectangles  (_xl.XSetClipRectangles)
+#define XSetClipMask        (_xl.XSetClipMask)
 #define XkbSetDetectableAutoRepeat (_xl.XkbSetDetectableAutoRepeat)
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
@@ -8253,7 +8256,7 @@ typedef struct {
     TtFn fn;
     int x, y, w, h;                   /* in pixels, worked out when drawing */
 } _TtButton;
-typedef struct { float x, y; unsigned long c; int size, bold, center; char s[2048]; } _TtText;
+typedef struct { float x, y; unsigned long c; int size, bold, center; char s[2048]; int shown, fx; } _TtText;
 typedef struct { int x, y, w, h, r; unsigned long c; } _TtHud;
 
 static struct {
@@ -8948,44 +8951,178 @@ TT unsigned long _tt_cnum(unsigned long c) { return c; }
 /* lets every color work as a name ("red") or a number (RED, 0xFF0000) */
 #define _TT_COL(c) _Generic((c), char *: _tt_cname, const char *: _tt_cname, default: _tt_cnum)(c)
 
-/* text with colors inside: "{red}Hello {blue}there"   "{rainbow}Turtlr"   "{#ff8800}orange" */
+/* ---- time, rainbow colors and {tags} for moving text ---- */
+TT double _tt_now(void) {                              /* seconds since the program started */
+    static struct timespec t0; static int on = 0;
+    struct timespec n; clock_gettime(CLOCK_MONOTONIC, &n);
+    if (!on) { t0 = n; on = 1; }
+    return (double)(n.tv_sec - t0.tv_sec) + (n.tv_nsec - t0.tv_nsec) / 1e9;
+}
+TT float _tt_frac(double v) { double f = v - (double)(long long)v; return (float)(f < 0 ? f + 1 : f); }
+TT unsigned long _tt_hue(float h) {                    /* 0 ... 1 = all the way around the rainbow */
+    h = _tt_frac(h) * 6; int i = (int)h; float f = h - i, s = 0.85f;
+    float p = 1 - s, q = 1 - s * f, t = 1 - s * (1 - f), r, g, b;
+    switch (i) {
+    case 0: r = 1; g = t; b = p; break;  case 1: r = q; g = 1; b = p; break;
+    case 2: r = p; g = 1; b = t; break;  case 3: r = p; g = q; b = 1; break;
+    case 4: r = t; g = p; b = 1; break;  default: r = 1; g = p; b = q;
+    }
+    return rgb((int)(r * 255), (int)(g * 255), (int)(b * 255));
+}
+TT unsigned long _tt_mix(unsigned long a, unsigned long b, float k) {
+    int r = (int)(((a >> 16) & 255) * (1 - k) + ((b >> 16) & 255) * k);
+    int g = (int)(((a >> 8) & 255) * (1 - k) + ((b >> 8) & 255) * k);
+    int bl = (int)((a & 255) * (1 - k) + (b & 255) * k);
+    return rgb(r, g, bl);
+}
+/* what a {tag} is: 1 = a color, 2 = {rainbow}, 3 = {party}, 10... = an effect.  0 = not a tag (just text) */
+TT int _tt_tag(const char *p, int *len, unsigned long *col) {
+    if (*p != '{') return 0;
+    const char *q = strchr(p, '}');
+    if (!q || q - p >= 24) return 0;
+    char name[24];
+    memcpy(name, p + 1, (size_t)(q - p - 1)); name[q - p - 1] = 0;
+    *len = (int)(q - p + 1);
+    static const char *fx[] = { "wave", "shake", "blink", "pulse", "still" };
+    for (int i = 0; i < 5; i++) if (_tt_ieq(name, fx[i])) return 10 + i;
+    if (_tt_ieq(name, "rainbow")) return 2;
+    if (_tt_ieq(name, "party")) return 3;
+    int ok = 0; unsigned long c = _tt_color_name(name, &ok);
+    if (ok) { if (col) *col = c; return 1; }
+    return 0;
+}
+TT int _tt_moves(const char *s) {                      /* does this text have moving tags in it? */
+    for (; *s; s++) { int len, k = _tt_tag(s, &len, NULL); if (k == 3 || (k >= 10 && k <= 13)) return 1; }
+    return 0;
+}
+TT int _tt_letters(const char *s) {                    /* letters you can see (not tags, not new lines) */
+    int n = 0;
+    while (*s) {
+        int len;
+        if (_tt_tag(s, &len, NULL)) { s += len; continue; }
+        if (*s != '\n') n++;
+        int clen; _tt_utf8((const unsigned char *)s, &clen);
+        s += clen > 0 ? clen : 1;
+    }
+    return n;
+}
+static int _tt_vis_left = -1;                          /* typing: how many more letters to draw (-1 = all) */
+
+/* text with colors inside: "{red}Hello {blue}there"   "{rainbow}Turtlr"   "{#ff8800}orange"
+ * moving:  "{party}" rainbow that moves   "{wave}" "{shake}" "{blink}" "{pulse}"   "{still}" stops moving */
 TT int _tt_tagged(Drawable d, _TtFont *f, int x, int y, unsigned long c, const char *s, int draw) {
     static const unsigned long rb[] = { 0x2E9E5B, 0xE67E22, 0x8E44AD, 0x3498DB, 0xE74C3C, 0x16A085, 0xF1C40F };
-    int x0 = x, rainbow = 0, ri = 0, n = 0;
+    int x0 = x, paint = 0, fx = 0, ri = 0, n = 0;      /* paint: 0 normal, 2 rainbow, 3 party */
+    double now = draw ? _tt_now() : 0;
     char seg[256];
 #define _TT_FLUSH() do { seg[n] = 0; if (n) { if (draw) _tt_str(d, f, x, y, c, seg); x += _tt_tw(f, seg); } n = 0; } while (0)
     for (const char *p = s; *p; p++) {
-        if (*p == '{') {
-            const char *q = strchr(p, '}');
-            if (q && q - p < 24) {
-                char name[24];
-                memcpy(name, p + 1, (size_t)(q - p - 1)); name[q - p - 1] = 0;
-                int ok = 0;
-                unsigned long col = _tt_color_name(name, &ok);
-                if (_tt_ieq(name, "rainbow")) { _TT_FLUSH(); rainbow = 1; p = q; continue; }
-                if (ok) { _TT_FLUSH(); c = col; rainbow = 0; p = q; continue; }
-            }
+        int len; unsigned long col;
+        int k = _tt_tag(p, &len, &col);
+        if (k) {
+            _TT_FLUSH();
+            if (k == 1) { c = col; paint = 0; }
+            else if (k == 2 || k == 3) paint = k;
+            else fx = k == 14 ? 0 : k - 9;             /* 1 wave, 2 shake, 3 blink, 4 pulse */
+            p += len - 1;
+            continue;
         }
-        if (rainbow && *p != ' ') {
+        if (paint || fx || (draw && _tt_vis_left >= 0)) {     /* one letter at a time */
             _TT_FLUSH();
             int clen; _tt_utf8((const unsigned char *)p, &clen);
+            if (clen < 1) clen = 1;
             char one[8] = {0};
             memcpy(one, p, (size_t)clen);
             p += clen - 1;
-            if (draw) _tt_str(d, f, x, y, rb[ri % 7], one);
-            x += _tt_tw(f, one);
-            ri++;
+            int w = _tt_tw(f, one);
+            if (draw) {
+                int show = 1, dx = 0, dy = 0;
+                unsigned long cc = paint == 2 ? rb[ri % 7] : paint == 3 ? _tt_hue((float)(ri * 0.07 - now * 0.6)) : c;
+                if (_tt_vis_left == 0) show = 0;
+                else if (_tt_vis_left > 0) _tt_vis_left--;
+                if (fx == 1) dy = _tt_round(_tt_sind(_tt_frac(now * 1.2 - ri * 0.08) * 360) * (f->asc * 0.22f));
+                if (fx == 2) {
+                    unsigned h = (unsigned)ri * 7919u + (unsigned)(now * 25) * 104729u;
+                    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+                    dx = (int)(h % 5) - 2; dy = (int)((h / 5) % 5) - 2;
+                }
+                if (fx == 3 && _tt_frac(now * 1.5) > 0.6f) show = 0;
+                if (fx == 4) cc = _tt_mix(cc, _tt.bg, (1 - _tt_cosd(_tt_frac(now * 0.8) * 360)) / 2 * 0.8f);
+                if (show && one[0] != ' ') _tt_str(d, f, x + dx, y + dy, cc, one);
+            }
+            x += w;
+            if (one[0] != ' ') ri++;
             continue;
         }
-        if (n < 254) seg[n++] = *p;
+        if (n >= 250 && ((unsigned char)*p & 0xC0) != 0x80) _TT_FLUSH();
+        seg[n++] = *p;
     }
     _TT_FLUSH();
 #undef _TT_FLUSH
     return x - x0;
 }
 
+/* ---- the loading bar ---- */
+static struct {
+    int on, timed;
+    float x, y, w, h, shown, target;
+    double t0, secs;
+    unsigned long fill;
+    char label[256];
+} _tt_ld = { 0, 0, 0, 0, 420, 26, 0, 0, 0, 0, 0x2ECC71, "" };
+
+TT void _tt_draw_loading(Drawable d) {
+    static double last = 0;
+    double now = _tt_now(), dt = now - last;
+    last = now;
+    if (!_tt_ld.on) return;
+    if (_tt_ld.timed) {                                    /* filling up by itself */
+        double k = _tt_ld.secs > 0 ? (now - _tt_ld.t0) / _tt_ld.secs : 1;
+        if (k >= 1) { k = 1; _tt_ld.timed = 0; }
+        _tt_ld.target = _tt_ld.shown = (float)(k * 100);
+    } else {                                               /* slide smoothly to the number you set */
+        float a = dt > 0.1 ? 1 : (float)(dt * 12);
+        _tt_ld.shown += (_tt_ld.target - _tt_ld.shown) * (a > 1 ? 1 : a);
+        if (_tt_abs(_tt_ld.target - _tt_ld.shown) < 0.3f) _tt_ld.shown = _tt_ld.target;
+    }
+    Display *dp = _tt.dpy;
+    int w = (int)_tt_ld.w, h = (int)_tt_ld.h;
+    if (w > _tt.W - 40) w = _tt.W - 40;
+    int x = _TT_SX(_tt_ld.x) - w / 2, y = _TT_SY(_tt_ld.y) - h / 2, r = h / 2;
+    int dark = !_tt_light(_tt.bg);
+    unsigned long track = dark ? 0x2A2A2A : 0xE4E4E4, edge = dark ? 0x4A4A4A : 0xC4C4C4, ink = dark ? 0xF0F0F0 : 0x222222;
+    _tt_rrect(d, x, y, w, h, r, track, 1);
+    float k = _tt_ld.shown / 100;
+    if (k > 1) k = 1;
+    int fw = (int)(w * k);
+    if (k > 0) {
+        if (fw < h) fw = h;
+        _tt_rrect(d, x, y, fw, h, r, _tt_ld.fill, 1);
+        if (k < 1 && fw > h) {                             /* moving stripes while it loads */
+            XRectangle clip = { (short)(x + r / 2), (short)y, (unsigned short)(fw - r), (unsigned short)h };
+            XSetClipRectangles(dp, _tt.gc, 0, 0, &clip, 1, Unsorted);
+            XSetForeground(dp, _tt.gc, _tt_mix(_tt_ld.fill, WHITE, 0.22f));
+            int off = (int)(_tt_frac(now * 1.5) * 28);
+            for (int sx = x - h - 28 + off; sx < x + fw; sx += 28) {
+                XPoint p[4] = { { (short)sx, (short)(y + h) }, { (short)(sx + 13), (short)(y + h) },
+                                { (short)(sx + 13 + h), (short)y }, { (short)(sx + h), (short)y } };
+                XFillPolygon(dp, d, _tt.gc, p, 4, Convex, CoordModeOrigin);
+            }
+            XSetClipMask(dp, _tt.gc, None);
+        }
+    }
+    _tt_rrect(d, x, y, w, h, r, edge, 0);
+    _TtFont *f = _tt_font(18, 1);
+    char pct[16];
+    snprintf(pct, sizeof pct, "%d%%", (int)(_tt_ld.shown + 0.5f));
+    if (_tt_ld.label[0]) _tt_tagged(d, f, x + 2, y - 10, ink, _tt_ld.label, 1);
+    _tt_str(d, f, x + w - _tt_tw(f, pct) - 2, y - 10, ink, pct);
+}
+
 /* moves and spins things that were told to glide (runs every time the screen updates) */
 TT int _tt_animating(void) {
+    for (int i = 0; i < _tt.ntxt; i++) if (_tt.txt[i].fx) return 1;
+    if (_tt_ld.on && (_tt_ld.timed || _tt_ld.shown != _tt_ld.target || _tt_ld.shown < 100 || _tt_moves(_tt_ld.label))) return 1;
     for (int i = 0; i < _tt.nt; i++) {
         if (_tt.t[i].moving || _tt.t[i].spinning) return 1;
         if (_tt.t[i].look == _TT_PIC && _tt_image_moves(_tt.t[i].img)) return 1;   /* gif or video playing */
@@ -9120,22 +9257,21 @@ TT void _tt_refresh(void) {
         _TtFont *f = _tt_font(t->size, t->bold);
         int line_h = f->asc + f->desc + 2, ln = 0;
         const char *p = t->s;
-        char carry[40] = "";                               /* color tag that carries to the next line */
+        char cfx[32] = "", ccol[32] = "";                 /* color and effect that carry to the next line */
+        _tt_vis_left = t->shown;
         for (;;) {                                         /* one line at a time ("\n" = new line) */
             const char *nl = strchr(p, '\n');
             char one[2048];
             int n = nl ? (int)(nl - p) : (int)strlen(p);
-            int cl = (int)strlen(carry);
+            int cl = snprintf(one, sizeof one, "%s%s", cfx, ccol);
             if (n > 2047 - cl) n = 2047 - cl;
-            memcpy(one, carry, (size_t)cl);
             memcpy(one + cl, p, (size_t)n); one[cl + n] = 0;
-            for (const char *q = one; (q = strchr(q, '{')) != NULL; q++) {   /* remember the last color */
-                const char *e = strchr(q, '}');
-                if (!e || e - q > 24) continue;
-                char name[26]; int ok = 0;
-                memcpy(name, q + 1, (size_t)(e - q - 1)); name[e - q - 1] = 0;
-                _tt_color_name(name, &ok);
-                if (ok || _tt_ieq(name, "rainbow")) snprintf(carry, sizeof carry, "{%s}", name);
+            for (const char *q = one; *q; q++) {           /* remember the last color and effect */
+                int len, k = _tt_tag(q, &len, NULL);
+                if (!k) continue;
+                if (k >= 10) snprintf(cfx, sizeof cfx, "%.*s", len, q);
+                else snprintf(ccol, sizeof ccol, "%.*s", len, q);
+                q += len - 1;
             }
             int x = _TT_SX(t->x);
             if (t->center) x -= _tt_tagged(_tt.buf, f, 0, 0, t->c, one, 0) / 2;
@@ -9143,7 +9279,9 @@ TT void _tt_refresh(void) {
             if (!nl) break;
             p = nl + 1; ln++;
         }
+        _tt_vis_left = -1;
     }
+    _tt_draw_loading(_tt.buf);
 
     /* 4. mouse coordinates */
     if (_tt.coords_on) {
@@ -9561,7 +9699,7 @@ TT void clear(void) {
     _tt_check();
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
     XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
-    if (!_tt.loop_mode) _tt.ntxt = 0;
+    if (!_tt.loop_mode) { _tt.ntxt = 0; _tt_ld.on = _tt_ld.timed = 0; }
     for (int i = 0; i < _tt.nt; i++)
         if (_tt.t[i].is_thing) { _tt.t[i].dead = 1; _tt.t[i].look = _TT_NONE; _tt.t[i].moving = _tt.t[i].spinning = 0; }
     if (_tt.dragging >= 0 && _tt.t[_tt.dragging].dead) _tt.dragging = -1;
@@ -9917,17 +10055,21 @@ TT void draggable(void) { _TT_T->drag = 1; }
 TT void textsize(int size) { _tt.tsize = size < 6 ? 6 : size > 300 ? 300 : size; }
 TT void bold(int on) { _tt.tbold = on; }
 
-TT void _tt_addtext(float x, float y, int center, const char *s) {
+TT _TtText *_tt_addtext2(float x, float y, int center, const char *s) {
     _tt_check();
-    if (_tt.ntxt >= _TT_MAXTXT) return;
+    if (_tt.ntxt >= _TT_MAXTXT) return NULL;
     _TtText *t = &_tt.txt[_tt.ntxt++];
     snprintf(t->s, sizeof t->s, "%s", s);
     t->x = x; t->y = y; t->c = _TT_T->color; t->size = _tt.tsize; t->bold = _tt.tbold; t->center = center;
-    _tt_show();
+    t->shown = -1; t->fx = _tt_moves(t->s);
+    return t;
 }
+TT void _tt_addtext(float x, float y, int center, const char *s) { _tt_addtext2(x, y, center, s); _tt_show(); }
 /* text("Hello", -300, 200);                 words at a spot (x, y = where the words start)
  * text("{red}Hi {blue}there", 0, 0);        colors inside the words
  * text("{rainbow}Rainbow!", 0, 0);          every letter a different color
+ * text("{party}PARTY", 0, 0);               a rainbow that MOVES
+ * text("{wave}Hello {shake}scary", 0, 0);   moving letters: {wave} {shake} {blink} {pulse}  ({still} stops)
  * text("Score: %d", -300, 200, score);      numbers in the words
  *   Outside forever it stays on screen.  Inside forever, call it every frame. */
 TT void text(const char *fmt, double x, double y, ...) {
@@ -9946,6 +10088,108 @@ TT void say(const char *fmt, ...) {
 }
 /* text_width("Hello")   how wide that text is (with the current textsize) */
 TT float text_width(const char *s) { _tt_check(); return (float)_tt_tagged(_tt.buf, _tt_font(_tt.tsize, _tt.tbold), 0, 0, 0, s, 0); }
+
+
+/* ============================================================ */
+/* TYPING TEXT  (letters show up one by one)                    */
+/*                                                              */
+/*   type_text("Hello traveler...", -300, 100);                 */
+/*   type_text_center("{red}Welcome!", 0, 0);                   */
+/*   type_speed(60);       faster (30 letters a second is normal)*/
+/*   Click, SPACE or ENTER shows the rest right away.           */
+/* ============================================================ */
+static float _tt_type_cps = 30;
+TT void type_speed(float letters_a_second) { _tt_type_cps = letters_a_second > 0 ? letters_a_second : 30; }
+TT void _tt_type(float x, float y, int center, const char *s) {
+    _tt_check();
+    if (_tt.closed) return;
+    int idx = _tt.ntxt;
+    if (!_tt_addtext2(x, y, center, s)) return;
+    int total = _tt_letters(_tt.txt[idx].s);
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    _tt.mtapped = 0; _tt.tapped[ENTER] = _tt.tapped[SPACE] = 0;
+    double t0 = _tt_now();
+    for (;;) {
+        int n = (int)((_tt_now() - t0) * _tt_type_cps);
+        if (n >= total || _tt.mtapped || _tt.tapped[ENTER] || _tt.tapped[SPACE]) break;
+        _tt.txt[idx].shown = n;
+        _tt_wait_tick();
+    }
+    _tt.txt[idx].shown = -1;
+    _tt.mtapped = 0; _tt.tapped[ENTER] = _tt.tapped[SPACE] = 0;
+    _tt.loop_mode = lm;
+    _tt_refresh();
+}
+TT void type_text(const char *fmt, double x, double y, ...) {
+    char b[2048]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    _tt_type((float)x, (float)y, 0, b);
+}
+TT void type_text_center(const char *fmt, double x, double y, ...) {
+    char b[2048]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    _tt_type((float)x, (float)y, 1, b);
+}
+
+/* ============================================================ */
+/* LOADING BAR                                                  */
+/*                                                              */
+/*   loading("Installing...", 5);         fills up in 5 seconds, */
+/*                                        THEN your next line runs */
+/*   loading("Installing...", 5, 0, -150);   at a spot (middle of the bar) */
+/*   start_loading("Building...", 10);    fills by itself while  */
+/*                                        your code keeps going  */
+/*   loading_done()                       1 when it is full      */
+/*   progress("Downloading...", 40);      YOU set it: 40% full   */
+/*   progress(75);                        just change the number */
+/*   loading_color("red");   loading_size(500, 30);   hide_loading(); */
+/* ============================================================ */
+TT void _tt_ld_place(const char *label, double x, double y) {
+    _tt_check();
+    if (!_tt_ld.on) _tt_ld.shown = _tt_ld.target = 0;
+    _tt_ld.on = 1; _tt_ld.x = (float)x; _tt_ld.y = (float)y;
+    if (label) snprintf(_tt_ld.label, sizeof _tt_ld.label, "%s", label);
+}
+TT void _tt_start_loading4(const char *label, double seconds, double x, double y) {
+    _tt_ld_place(label, x, y);
+    _tt_ld.timed = 1; _tt_ld.secs = seconds; _tt_ld.t0 = _tt_now();
+    _tt_ld.shown = _tt_ld.target = 0;
+    _tt_show();
+}
+TT void _tt_start_loading2(const char *label, double seconds) { _tt_start_loading4(label, seconds, 0, 0); }
+#define start_loading(...) _TT_PICK4(__VA_ARGS__, _tt_start_loading4, _tt_start_loading_needs_x_and_y, _tt_start_loading2, 0)(__VA_ARGS__)
+
+TT void _tt_loading4(const char *label, double seconds, double x, double y) {
+    _tt_start_loading4(label, seconds, x, y);
+    if (_tt.closed) return;
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    while (_tt_ld.timed) _tt_wait_tick();
+    _tt.loop_mode = lm;
+    _tt_refresh();
+}
+TT void _tt_loading2(const char *label, double seconds) { _tt_loading4(label, seconds, 0, 0); }
+#define loading(...) _TT_PICK4(__VA_ARGS__, _tt_loading4, _tt_loading_needs_x_and_y, _tt_loading2, 0)(__VA_ARGS__)
+
+TT int loading_done(void) {
+    if (!_tt_ld.on) return 0;
+    if (_tt_ld.timed) return _tt_now() - _tt_ld.t0 >= _tt_ld.secs;
+    return _tt_ld.target >= 100;
+}
+
+TT void _tt_progress4(const char *label, double percent, double x, double y) {
+    _tt_ld_place(label, x, y);
+    _tt_ld.timed = 0;
+    _tt_ld.target = (float)(percent < 0 ? 0 : percent > 100 ? 100 : percent);
+    _tt_show();
+}
+TT void _tt_progress2(const char *label, double percent) {
+    _tt_progress4(label, percent, _tt_ld.on ? _tt_ld.x : 0, _tt_ld.on ? _tt_ld.y : 0);
+}
+TT void _tt_progress1(double percent) { _tt_progress2(NULL, percent); }
+#define progress(...) _TT_PICK4(__VA_ARGS__, _tt_progress4, _tt_progress_needs_x_and_y, _tt_progress2, _tt_progress1, 0)(__VA_ARGS__)
+
+TT void _tt_loading_color(unsigned long c) { _tt_ld.fill = c; _tt_show(); }
+#define loading_color(c) _tt_loading_color(_TT_COL(c))
+TT void loading_size(int width, int height) { _tt_ld.w = (float)(width > 20 ? width : 20); _tt_ld.h = (float)(height > 6 ? height : 6); _tt_show(); }
+TT void hide_loading(void) { _tt_ld.on = 0; _tt_ld.timed = 0; _tt_show(); }
 
 /* ============================================================ */
 /* BUTTONS AND LINKS                                            */
@@ -10655,6 +10899,7 @@ TT void new_screen(void) {
         if (_tt.t[i].is_thing) { _tt.t[i].dead = 1; _tt.t[i].look = _TT_NONE; _tt.t[i].moving = _tt.t[i].spinning = 0; }
     _tt.dragging = -1;
     _tt.ntxt = 0;
+    _tt_ld.on = _tt_ld.timed = 0;
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
     XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
     _tt_show();

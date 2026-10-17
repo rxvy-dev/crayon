@@ -364,7 +364,7 @@ text("{#ff8800}orange words", 0, 0);
 
 **Names:** red, green, blue, yellow, orange, purple, pink, cyan, brown, black, white, gray, darkgray,
 lightgray, sky, grass, navy, lime, gold, teal, magenta, violet, darkgreen, darkblue, darkred,
-lightblue, lightgreen, beige, silver, maroon, olive, linkblue
+lightblue, lightgreen, beige, silver, maroon, olive, linkblue, tomato, brightred
 
 **Hex codes** are `#` + 6 characters: two for red, two for green, two for blue, each from `00` (none) to `ff` (full).
 `"#ff0000"` is pure red, `"#00ff00"` pure green, `"#ffffff"` white, `"#000000"` black.
@@ -382,6 +382,65 @@ text_center("Title", 0, 150);                     // centered on x, y
 text("line one\nline two", 0, 100);               // \n = new line
 textsize(40);
 bold(1);
+```
+
+## ✨ Moving text, typing text and loading bars
+
+![moving text, typing and loading bars](screenshots/effects.gif)
+
+**Moving text**: put a tag in front of the words, just like a color:
+
+```c
+text("{party}PARTY TIME", 0, 100);       // a rainbow that MOVES
+text("{wave}hello there", 0, 50);        // letters go up and down like a wave
+text("{shake}{red}DANGER", 0, 0);        // shaky scary letters
+text("{blink}press start", 0, -50);      // blinks on and off
+text("{pulse}{cyan}glowing", 0, -100);   // fades in and out
+text("{wave}wavy {still}not wavy", 0, -150);   // {still} stops the moving
+```
+
+Mix them with colors (`{wave}{red}`) and use them anywhere text goes: `text`, `text_center`, `type_text`, loading bars.
+
+**Typing text**: the letters show up one at a time, then your next line runs:
+
+```c
+type_text("Hello traveler...", -300, 100);              // x, y = where it starts
+type_text_center("{red}Welcome to my game!", 0, 0);    // x, y = the middle
+type_speed(60);                                          // faster (30 letters a second is normal)
+```
+
+Clicking or pressing SPACE or ENTER shows the rest right away.
+
+**Loading bar**: like an installer. It has moving stripes and a % number:
+
+```c
+loading("Installing...", 5);              // fills up in 5 seconds, THEN the next line runs
+loading("Installing...", 5, 0, -150);     // at a spot (x, y = the middle of the bar)
+```
+
+Do anything while it fills (run commands, download, whatever) and set the % yourself:
+
+```c
+progress("Installing stuff...", 0);
+run("sudo pacman -S --noconfirm git");
+progress(50);                              // slides smoothly to 50%
+run("sudo pacman -S --noconfirm ffmpeg");
+progress(100);
+```
+
+Or let it fill by itself while your code (or your game) keeps going:
+
+```c
+start_loading("Charging laser...", 10);   // 10 seconds, doesn't wait
+forever {
+    if (loading_done()) text_center("{blink}READY!", 0, 0);
+}
+```
+
+```c
+loading_color("red");        // color of the bar (green is normal)
+loading_size(500, 30);       // width, height
+hide_loading();              // take it away
 ```
 
 ## Ask the user things
@@ -670,6 +729,8 @@ image("x.png/.gif/.mp4", x, y) { }  sound("x.mp3")  stop_sounds()  label("...", 
 rotate(deg)  rotate_to(deg)  place(x, y)  resize(n)  glide(x, y, speed)  start_spin(deg, speed)  stamp("x.png", x, y)
 add_image("x.png", x, y)  add_text("...", x, y)  change_text(t, "...")  things_touch(a, b)  drag_thing(t)
 text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
+{party} {wave} {shake} {blink} {pulse} {still}  type_text("...", x, y)  type_text_center("...", x, y)  type_speed(n)
+loading("...", sec)  loading("...", sec, x, y)  start_loading("...", sec)  loading_done()  progress("...", pct)  progress(pct)  loading_color("c")  loading_size(w, h)  hide_loading()
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
