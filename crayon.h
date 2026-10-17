@@ -9266,6 +9266,17 @@ TT void fullscreen(void) { _tt.want_full = 1; window(800, 600); }
 TT int _tt_key(int k);
 TT void exit_key(int k) { if (_tt.nexit < 8) _tt.exit_keys[_tt.nexit++] = _tt_key(k); }
 
+/* quit();   closes the window and ends the program right away (same as close_window();)
+ *   e.g. button("Quit", 0, -100, quit);   or   wait_for(5); quit(); */
+TT void stop_sounds(void);
+TT void quit(void) {
+    if (_tt.dpy && !_tt.closed) { XCloseDisplay(_tt.dpy); _tt.dpy = NULL; }
+    _tt.closed = 1;
+    stop_sounds();
+    exit(0);
+}
+TT void close_window(void) { quit(); }
+
 /* window_width(), window_height()   how big the window is (handy with fullscreen)
  * left_edge(), right_edge(), top_edge(), bottom_edge()   the x or y of each edge */
 TT int window_width(void)  { return _tt.W; }
