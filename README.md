@@ -78,6 +78,20 @@ It's only one header file, and it builds with plain `gcc` — no `-lX11`, no `-l
 
 ---
 
+## Fullscreen
+
+```c
+fullscreen();              // use instead of window(): your whole screen, no bars or borders
+exit_key(ESC);             // optional: this key closes it (add more: exit_key('q');)
+
+image("clip.mp4", 0, 0);   // a video, and keyboard mashing won't close it
+```
+
+Without `exit_key()`, no key closes the program, which is handy for kiosks or a video your cat can smash keys on.
+Your system's own close shortcut (like Alt+F4 or your compositor's kill bind) still works.
+
+`window_width()`, `window_height()`, `left_edge()`, `right_edge()`, `top_edge()`, `bottom_edge()` tell you where the edges are.
+
 ## Where things go (coordinates)
 
 The middle of the window is **(0, 0)**. **x** goes right (negative = left), **y** goes up (negative = down).
@@ -553,7 +567,7 @@ by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `so
 ## Cheat sheet
 
 ```
-window(w, h)  title("...")  background("color")  grid()  show_coords()
+window(w, h)  fullscreen()  exit_key(ESC)  title("...")  background("color")  grid()  show_coords()
 forward(n)  back(n)  left(deg)  right(deg)  face(deg)  go_to(x, y)  walk_to(x, y)  go_home()
 color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size)
 box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()

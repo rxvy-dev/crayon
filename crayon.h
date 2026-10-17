@@ -21,6 +21,7 @@
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <X11/XKBlib.h>
 #include <X11/keysym.h>
 #include <dlfcn.h>
@@ -8110,7 +8111,7 @@ typedef int Turtle;
     F(XCopyArea) F(XSetLineAttributes) F(XFillPolygon) F(XDrawLine) \
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
-    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage)
+    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8160,6 +8161,7 @@ TT void _tt_loadx(void) {
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
 #define XGetSubImage        (_xl.XGetSubImage)
+#define XChangeProperty     (_xl.XChangeProperty)
 
 /* smooth fonts (libXft) - optional, falls back to plain X fonts */
 typedef struct { unsigned short red, green, blue, alpha; } _tt_rcolor;
@@ -8262,7 +8264,8 @@ static struct {
     Visual *vis; Colormap cmap;
     void *xd_canvas, *xd_buf;
     Atom del;
-    int W, H, depth, closed, at_exit, canvas_dirty;
+    int W, H, depth, closed, at_exit, canvas_dirty, want_full;
+    int exit_keys[8], nexit;
     int spd;
     unsigned long bg;
 
@@ -9169,12 +9172,36 @@ TT void _tt_new_turtle_at(int i) {
 }
 
 /* window(800, 600);   makes the window */
+/* the size and spot of your main monitor (or the whole screen if that can't be found) */
+typedef struct { Atom name; Bool primary, automatic; int noutput, x, y, width, height, mwidth, mheight; void *outputs; } _tt_monitor;
+TT void _tt_main_monitor(Display *d, int *x, int *y, int *w, int *h) {
+    int scr = DefaultScreen(d);
+    *x = 0; *y = 0; *w = DisplayWidth(d, scr); *h = DisplayHeight(d, scr);
+    void *lib = dlopen("libXrandr.so.2", RTLD_NOW);
+    if (!lib) return;
+    _tt_monitor *(*get)(Display *, Window, Bool, int *) = NULL;
+    void (*freem)(_tt_monitor *) = NULL;
+    *(void **)&get = dlsym(lib, "XRRGetMonitors");
+    *(void **)&freem = dlsym(lib, "XRRFreeMonitors");
+    if (!get) return;
+    int n = 0;
+    _tt_monitor *m = get(d, RootWindow(d, scr), True, &n);
+    if (m && n > 0) {
+        int pick = 0;
+        for (int i = 0; i < n; i++) if (m[i].primary) pick = i;
+        *x = m[pick].x; *y = m[pick].y; *w = m[pick].width; *h = m[pick].height;
+    }
+    if (m && freem) freem(m);
+}
+
 TT void window(int w, int h) {
     _tt_loadx();
     _tt.dpy = XOpenDisplay(NULL);
     if (!_tt.dpy) { fprintf(stderr, "crayon.h: no display found\n"); exit(1); }
     Display *d = _tt.dpy;
     int scr = DefaultScreen(d);
+    int wx = 0, wy = 0;
+    if (_tt.want_full) _tt_main_monitor(d, &wx, &wy, &w, &h);
     _tt.W = w; _tt.H = h; _tt.depth = DefaultDepth(d, scr);
     _tt.vis = DefaultVisual(d, scr); _tt.cmap = DefaultColormap(d, scr);
     _tt.spd = 5; _tt.bg = WHITE; _tt.tsize = 18;
@@ -9185,7 +9212,7 @@ TT void window(int w, int h) {
     _tt.btn_c = 0xF8F9FA; _tt.btn_text = 0x202124;
     _tt.box_c = WHITE; _tt.box_text = 0x202124; _tt.box_hint = 0x80868B; _tt.box_line = 0xC9CDD2;
 
-    _tt.win = XCreateSimpleWindow(d, RootWindow(d, scr), 0, 0, w, h, 0, 0, WHITE);
+    _tt.win = XCreateSimpleWindow(d, RootWindow(d, scr), wx, wy, w, h, 0, 0, WHITE);
     XStoreName(d, _tt.win, "Crayon");
     XSelectInput(d, _tt.win, ExposureMask | KeyPressMask | KeyReleaseMask |
                  ButtonPressMask | ButtonReleaseMask | PointerMotionMask);
@@ -9199,6 +9226,13 @@ TT void window(int w, int h) {
     hints->min_height = hints->max_height = h;
     XSetWMNormalHints(d, _tt.win, hints);
     XFree(hints);
+    if (_tt.want_full) {                                    /* ask the window manager for real fullscreen */
+        Atom st = XInternAtom(d, "_NET_WM_STATE", False), fs = XInternAtom(d, "_NET_WM_STATE_FULLSCREEN", False);
+        XChangeProperty(d, _tt.win, st, XA_ATOM, 32, PropModeReplace, (unsigned char *)&fs, 1);
+        long motif[5] = { 2, 0, 0, 0, 0 };                  /* and no borders, for window managers that ignore that */
+        Atom mh = XInternAtom(d, "_MOTIF_WM_HINTS", False);
+        XChangeProperty(d, _tt.win, mh, mh, 32, PropModeReplace, (unsigned char *)motif, 5);
+    }
 
     _tt.gc = XCreateGC(d, _tt.win, 0, NULL);
     _tt.canvas = XCreatePixmap(d, _tt.win, w, h, _tt.depth);
@@ -9223,6 +9257,23 @@ TT void window(int w, int h) {
     atexit(_tt_atexit);                        /* keep the window open at the end */
     _tt_refresh();
 }
+
+/* fullscreen();    use INSTEAD of window(): fills your whole screen, no bars or borders.
+ *                  No key closes it unless you pick one with exit_key().
+ * exit_key(ESC);   pressing that key closes the program (works in a normal window too).
+ *                  Call it more than once for more keys: exit_key('q'); */
+TT void fullscreen(void) { _tt.want_full = 1; window(800, 600); }
+TT int _tt_key(int k);
+TT void exit_key(int k) { if (_tt.nexit < 8) _tt.exit_keys[_tt.nexit++] = _tt_key(k); }
+
+/* window_width(), window_height()   how big the window is (handy with fullscreen)
+ * left_edge(), right_edge(), top_edge(), bottom_edge()   the x or y of each edge */
+TT int window_width(void)  { return _tt.W; }
+TT int window_height(void) { return _tt.H; }
+TT float left_edge(void)   { return -_tt.W / 2.0f; }
+TT float right_edge(void)  { return _tt.W / 2.0f; }
+TT float top_edge(void)    { return _tt.H / 2.0f; }
+TT float bottom_edge(void) { return -_tt.H / 2.0f; }
 
 /* title("My Game"); */
 TT void title(const char *fmt, ...) {
@@ -10180,6 +10231,13 @@ TT int _tt_handle(XEvent *e) {
             if (!_tt.loop_mode) _tt_refresh();
             break;
         }
+        for (int q = 0; q < _tt.nexit; q++)                          /* exit_key() */
+            if (_tt.exit_keys[q] == _tt_key((int)(ks & 0xFFFF))) {
+                XCloseDisplay(_tt.dpy);
+                _tt.dpy = NULL; _tt.closed = 1;
+                stop_sounds();
+                return 0;
+            }
         if ((ks == XK_Return || ks == XK_KP_Enter) && _tt_tb_visible()) {
             _tt.focus = 1;
             memset(_tt.down, 0, sizeof _tt.down);
