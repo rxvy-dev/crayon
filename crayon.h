@@ -10556,29 +10556,42 @@ TT void _tt_random_spot(float *x, float *y) {
 }
 
 /* player("turtle.png");      makes the player. Arrow keys or WASD move it.
+ * player("turtle.png", 0.5); half size
  * player_speed(8);           faster (5 is normal)
  * tank_controls();           LEFT/RIGHT turn it and UP walks forward instead */
-TT Thing player(const char *file) {
+TT Thing _tt_player2(const char *file, double size) {
     _tt_check();
     _tt_game.active = 1;
-    Thing th = _tt_add_image3(file, 0, 0);
+    Thing th = _tt_add_image4(file, 0, 0, size);
     _tt.t[th].upright = 1;
     _tt_game.player = th;
     return th;
 }
+TT Thing _tt_player1(const char *file) { return _tt_player2(file, 1); }
+#define player(...) _TT_PICK2(__VA_ARGS__, _tt_player2, _tt_player1, 0)(__VA_ARGS__)
 TT void player_speed(float s) { _tt_game.speed = s; }
 TT void tank_controls(void) { _tt_game.tank = 1; if (_tt_game.player >= 0) _tt.t[_tt_game.player].upright = 0; }
 
 /* spawn("coin.png", 5);          puts 5 of them in random spots
+ * spawn("coin.png", 5, 0.5);     same, but half size (2 = twice as big)
  * spawn_at("wall.png", 100, 0);  puts one at a spot */
-TT void spawn(const char *file, int how_many) {
+TT void _tt_spawn3(const char *file, int how_many, double size) {
     _tt_check();
     _tt_game.active = 1;
     for (int i = 0; i < how_many; i++) {
         float x, y;
         _tt_random_spot(&x, &y);
-        _tt_add_image3(file, x, y);
+        _tt_add_image4(file, x, y, size);
     }
+}
+TT void _tt_spawn2(const char *file, int how_many) { _tt_spawn3(file, how_many, 1); }
+#define spawn(...) _TT_PICK3(__VA_ARGS__, _tt_spawn3, _tt_spawn2, 0)(__VA_ARGS__)
+
+/* size_all("coin.png", 0.5);   makes every coin half size (2 = twice as big) */
+TT void size_all(const char *file, double size) {
+    _tt_check();
+    int img = _tt_image(file);
+    for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].is_thing && _tt.t[i].img == img) _tt.t[i].size = (float)size;
 }
 TT Thing spawn_at(const char *file, double x, double y) { _tt_check(); _tt_game.active = 1; return _tt_add_image3(file, x, y); }
 

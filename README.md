@@ -387,6 +387,7 @@ That's the whole game - it starts by itself at the end of `main`.
 |---|---|
 | `player("x.png")` | you - arrow keys / WASD. `player_speed(8)`, `tank_controls()` |
 | `spawn("x.png", 5)` / `spawn_at("x.png", x, y)` | put things in the world |
+| `spawn("x.png", 5, 0.5)` / `player("x.png", 0.5)` / `size_all("x.png", 0.5)` | smaller (or bigger: `2`) |
 | `on_touch("x.png", fn)` | run `fn()` when you touch one |
 | inside that fn | `respawn()`, `remove_it()`, `it()` (the thing you touched) |
 | `chase("x.png", speed)` / `spin_all("x.png", speed)` | make them chase you / spin |
