@@ -9498,25 +9498,46 @@ TT void outline(float x, float y, float w, float h, int corner) {
     _tt_show();
 }
 
-/* box(-200, -100, 200, 100, "red");            a filled box from one corner to the other:
- *                                               bottom-left (x1, y1) to top-right (x2, y2), in that color
- * box_outline(-200, -100, 200, 100, "red");     just the border
- * box_round(-200, -100, 200, 100, "red", 15);   round corners (15 = how round)
+/* box(-200, -100, 200, 100, "red");        a filled box from one corner to the other:
+ *                                           bottom-left (x1, y1) to top-right (x2, y2), in that color
+ * box(-200, -100, 200, 100, "red", 15);    same, with round corners (15 = how round)
+ * box_outline("black");                    a border around the box you JUST made (same roundness)
+ * box_outline("black", 4);                 ...4 thick
+ * box_outline(-200, -100, 200, 100, "red");   or a border anywhere (add a 6th number for thickness)
  * The corners can be in any order. The color is only for this box.
  * (box(x, y, width, height) with NO color still works: x, y is the middle, uses color()) */
-TT void _tt_rect(double x1, double y1, double x2, double y2, unsigned long c, int fill, int corner) {
+static struct { double x1, y1, x2, y2; int r, has; } _tt_lastbox;
+TT void _tt_rect(double x1, double y1, double x2, double y2, unsigned long c, int fill, int corner, int thick) {
     _tt_check();
     double l = x1 < x2 ? x1 : x2, r = x1 < x2 ? x2 : x1, b = y1 < y2 ? y1 : y2, t = y1 < y2 ? y2 : y1;
     int w = (int)(r - l + 0.5), h = (int)(t - b + 0.5);
     if (w < 1) w = 1;
     if (h < 1) h = 1;
-    _tt_rrect(_TT_CANVAS, _TT_SX(l), _TT_SY(t), w, h, corner, c, fill);
+    if (corner < 0) corner = 0;
+    if (fill) _tt_rrect(_TT_CANVAS, _TT_SX(l), _TT_SY(t), w, h, corner, c, 1);
+    else {
+        if (thick < 1) thick = 1;
+        for (int i = 0; i < thick; i++)                         /* thicker borders grow outward */
+            _tt_rrect(_TT_CANVAS, _TT_SX(l) - i, _TT_SY(t) - i, w + 2 * i, h + 2 * i, corner ? corner + i : 0, c, 0);
+    }
+    _tt_lastbox.x1 = l; _tt_lastbox.y1 = b; _tt_lastbox.x2 = r; _tt_lastbox.y2 = t;
+    _tt_lastbox.r = corner; _tt_lastbox.has = 1;
     _tt_show();
 }
-#define _tt_box5(x1, y1, x2, y2, c)        _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, 0)
-#define box(...)                           _TT_PICK5(__VA_ARGS__, _tt_box5, _tt_box4, 0, 0, 0)(__VA_ARGS__)
-#define box_outline(x1, y1, x2, y2, c)     _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 0, 0)
-#define box_round(x1, y1, x2, y2, c, r)    _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, (r))
+TT void _tt_box_last(unsigned long c, int thick) {
+    if (!_tt_lastbox.has) { fprintf(stderr, "crayon.h: box_outline(\"color\") needs a box() before it\n"); return; }
+    _tt_rect(_tt_lastbox.x1, _tt_lastbox.y1, _tt_lastbox.x2, _tt_lastbox.y2, c, 0, _tt_lastbox.r, thick);
+}
+#define _TT_PICK6(_1, _2, _3, _4, _5, _6, NAME, ...) NAME
+#define _tt_box6(x1, y1, x2, y2, c, r)     _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, (r), 0)
+#define _tt_box5(x1, y1, x2, y2, c)        _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, 0, 0)
+#define box(...)                           _TT_PICK6(__VA_ARGS__, _tt_box6, _tt_box5, _tt_box4, 0, 0, 0)(__VA_ARGS__)
+#define _tt_bo6(x1, y1, x2, y2, c, t)      _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 0, 0, (t))
+#define _tt_bo5(x1, y1, x2, y2, c)         _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 0, 0, 1)
+#define _tt_bo2(c, t)                      _tt_box_last(_TT_COL(c), (t))
+#define _tt_bo1(c)                         _tt_box_last(_TT_COL(c), 1)
+#define box_outline(...)                   _TT_PICK6(__VA_ARGS__, _tt_bo6, _tt_bo5, 0, 0, _tt_bo2, _tt_bo1, 0)(__VA_ARGS__)
+#define box_round(x1, y1, x2, y2, c, r)    _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, (r), 0)
 
 /* begin_fill(); ...move around a shape...  end_fill();   colors in the inside */
 TT void begin_fill(void) {
