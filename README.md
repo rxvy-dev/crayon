@@ -316,6 +316,30 @@ repeat(5) { forward(150); right(144); }
 
 <img src="screenshots/pictures.png" width="520">
 
+## Colors
+
+Anywhere you give a color, you can use a **name** or a **hex code**:
+
+```c
+color("red");                          // a name
+background("navy");
+box(-100, -50, 100, 50, "gold");
+text("{pink}hi {lime}there", 0, 0);    // names inside text too
+
+color("#ff8800");                      // a hex code = an exact shade (orange)
+background("#1b1b2f");                 // dark navy
+box(-100, -50, 100, 50, "#3498db");    // a nice blue
+text("{#ff8800}orange words", 0, 0);
+```
+
+**Names:** red, green, blue, yellow, orange, purple, pink, cyan, brown, black, white, gray, darkgray,
+lightgray, sky, grass, navy, lime, gold, teal, magenta, violet, darkgreen, darkblue, darkred,
+lightblue, lightgreen, beige, silver, maroon, olive, linkblue
+
+**Hex codes** are `#` + 6 characters: two for red, two for green, two for blue, each from `00` (none) to `ff` (full).
+`"#ff0000"` is pure red, `"#00ff00"` pure green, `"#ffffff"` white, `"#000000"` black.
+Pick any color in a color picker (GIMP, a website, your editor) and copy its hex code.
+
 ## Colorful text
 
 ```c
