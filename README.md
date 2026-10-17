@@ -255,7 +255,10 @@ walk_to(150, 50);         // a line from here to (150, 50)
 circle(50);               // a circle
 dot(40);                  // a filled dot
 
-box(-280, -130, 140, 70);                  // x, y (the middle), width, height
+box(-200, -100, 200, 100, "red");          // a box from bottom-left (-200, -100) to top-right (200, 100)
+box_outline(-200, -100, 200, 100, "white"); // just the border
+box_round(-200, -100, 200, 100, "blue", 15); // round corners
+box(-280, -130, 140, 70);                  // no color = x, y (the middle), width, height, uses color()
 round_box(-80, -130, 140, 70, 20);         // with round corners
 outline(120, -130, 140, 70, 10);           // just the border
 
@@ -603,7 +606,7 @@ by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `so
 bundle("file")  window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()
 forward(n)  back(n)  left(deg)  right(deg)  face(deg)  go_to(x, y)  walk_to(x, y)  go_home()
 color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size)
-box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
+box(x1, y1, x2, y2, "color")  box_outline(..)  box_round(.., r)  box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
 clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
 image("x.png", x, y)  image("x.png", x, y, scale)

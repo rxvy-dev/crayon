@@ -9490,13 +9490,33 @@ TT void round_box(float x, float y, float w, float h, int corner) {
     _tt_rrect(_TT_CANVAS, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 1);
     _tt_show();
 }
-TT void box(float x, float y, float w, float h) { round_box(x, y, w, h, 0); }
+TT void _tt_box4(double x, double y, double w, double h) { round_box((float)x, (float)y, (float)w, (float)h, 0); }
 /* outline(x, y, width, height, corner);  just the border of a box */
 TT void outline(float x, float y, float w, float h, int corner) {
     _tt_check();
     _tt_rrect(_TT_CANVAS, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 0);
     _tt_show();
 }
+
+/* box(-200, -100, 200, 100, "red");            a filled box from one corner to the other:
+ *                                               bottom-left (x1, y1) to top-right (x2, y2), in that color
+ * box_outline(-200, -100, 200, 100, "red");     just the border
+ * box_round(-200, -100, 200, 100, "red", 15);   round corners (15 = how round)
+ * The corners can be in any order. The color is only for this box.
+ * (box(x, y, width, height) with NO color still works: x, y is the middle, uses color()) */
+TT void _tt_rect(double x1, double y1, double x2, double y2, unsigned long c, int fill, int corner) {
+    _tt_check();
+    double l = x1 < x2 ? x1 : x2, r = x1 < x2 ? x2 : x1, b = y1 < y2 ? y1 : y2, t = y1 < y2 ? y2 : y1;
+    int w = (int)(r - l + 0.5), h = (int)(t - b + 0.5);
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+    _tt_rrect(_TT_CANVAS, _TT_SX(l), _TT_SY(t), w, h, corner, c, fill);
+    _tt_show();
+}
+#define _tt_box5(x1, y1, x2, y2, c)        _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, 0)
+#define box(...)                           _TT_PICK5(__VA_ARGS__, _tt_box5, _tt_box4, 0, 0, 0)(__VA_ARGS__)
+#define box_outline(x1, y1, x2, y2, c)     _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 0, 0)
+#define box_round(x1, y1, x2, y2, c, r)    _tt_rect((x1), (y1), (x2), (y2), _TT_COL(c), 1, (r))
 
 /* begin_fill(); ...move around a shape...  end_fill();   colors in the inside */
 TT void begin_fill(void) {
