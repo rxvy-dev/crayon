@@ -8110,7 +8110,7 @@ typedef int Turtle;
     F(XCopyArea) F(XSetLineAttributes) F(XFillPolygon) F(XDrawLine) \
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
-    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor)
+    F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8159,6 +8159,7 @@ TT void _tt_loadx(void) {
 #define XkbSetDetectableAutoRepeat (_xl.XkbSetDetectableAutoRepeat)
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
+#define XGetSubImage        (_xl.XGetSubImage)
 
 /* smooth fonts (libXft) - optional, falls back to plain X fonts */
 typedef struct { unsigned short red, green, blue, alpha; } _tt_rcolor;
@@ -8214,7 +8215,7 @@ TT int _tt_ieq(const char *a, const char *b) {
 /* ============================================================ */
 /* STATE                                                        */
 /* ============================================================ */
-#define _TT_MAXT    64
+#define _TT_MAXT    1024
 #define _TT_MAXI    256
 #define _TT_MAXB    160
 #define _TT_MAXTXT  512
@@ -8229,7 +8230,7 @@ typedef struct {
     int is_thing, dead;
     float size;
     unsigned long color;
-    XPoint fill[_TT_FILLMAX];
+    XPoint *fill;                    /* only while filling */
 } _TtTurtle;
 
 typedef struct {
@@ -8258,7 +8259,7 @@ static struct {
     Visual *vis; Colormap cmap;
     void *xd_canvas, *xd_buf;
     Atom del;
-    int W, H, depth, closed, at_exit;
+    int W, H, depth, closed, at_exit, canvas_dirty;
     int spd;
     unsigned long bg;
 
@@ -8301,6 +8302,7 @@ static struct {
 } _tt;
 
 #define _TT_T (&_tt.t[_tt.cur])
+#define _TT_CANVAS (_tt.canvas_dirty = 1, _tt.canvas)     /* drawing on the canvas: remember it changed */
 #define _TT_SX(px) (_tt_round(_tt.W / 2.0f + (px)))
 #define _TT_SY(py) (_tt_round(_tt.H / 2.0f - (py)))
 #define _TT_BARH 46
@@ -8492,7 +8494,7 @@ TT int _tt_have_ffmpeg(void) {
     return known;
 }
 
-typedef struct { FILE *pipe; char path[256]; int w, h; double fps; long start_ms, shown; } _TtVideo;
+typedef struct { FILE *pipe; char path[1024]; int w, h; double fps; long start_ms, shown; } _TtVideo;
 
 TT int _tt_video_open(_TtVideo *v) {
     char q[600], cmd[900];
@@ -8691,33 +8693,48 @@ TT void stop_sounds(void) {
 }
 
 
-TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip) {
-    if (sc <= 0) return;
+/* the screen box (in pixels) a picture covers */
+TT int _tt_pic_box(_TtImage *g, float cx, float cy, float sc, float ang, int *x0, int *y0, int *x1, int *y1) {
+    if (sc <= 0) return 0;
     float hw = g->w * sc / 2, hh = g->h * sc / 2;
-    float r = _tt_sqrt(hw * hw + hh * hh) + 1;
-    int x0 = (int)(cx - r), x1 = (int)(cx + r) + 1, y0 = (int)(cy - r), y1 = (int)(cy + r) + 1;
-    if (x0 < 0) x0 = 0;
-    if (y0 < 0) y0 = 0;
+    float ca = _tt_abs(_tt_cosd(ang)), sa = _tt_abs(_tt_sind(ang));
+    float ex = hw * ca + hh * sa + 1, ey = hw * sa + hh * ca + 1;
+    *x0 = (int)(cx - ex); *x1 = (int)(cx + ex) + 1; *y0 = (int)(cy - ey); *y1 = (int)(cy + ey) + 1;
+    if (*x0 < 0) *x0 = 0;
+    if (*y0 < 0) *y0 = 0;
+    if (*x1 > _tt.W) *x1 = _tt.W;
+    if (*y1 > _tt.H) *y1 = _tt.H;
+    return *x1 > *x0 && *y1 > *y0;
+}
+
+/* draws picture g centered at pixel (cx, cy), scaled and turned (degrees, counter-clockwise) */
+TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip) {
+    int x0, y0, x1, y1;
+    if (!_tt_pic_box(g, cx, cy, sc, ang, &x0, &y0, &x1, &y1)) return;
     if (x1 > im->width) x1 = im->width;
     if (y1 > im->height) y1 = im->height;
-    float ca = _tt_cosd(ang), sa = _tt_sind(ang);
+    float ca = _tt_cosd(ang), sa = _tt_sind(ang), inv = 1.0f / sc;
+    float hw = g->w / 2.0f, hh = g->h / 2.0f;
+    float dfx = ca * inv, dfy = sa * inv;                  /* how the picture position moves per screen pixel */
+    const int gw = g->w, gh = g->h;
     for (int py = y0; py < y1; py++) {
         uint32_t *row = (uint32_t *)(im->data + py * im->bytes_per_line);
-        for (int px = x0; px < x1; px++) {
-            float mx = px + 0.5f - cx, my = cy - (py + 0.5f);
-            float ux = mx * ca + my * sa, uy = -mx * sa + my * ca;
-            int ix = (int)(ux / sc + g->w / 2.0f + 1000) - 1000;
-            int iy = (int)(-uy / sc + g->h / 2.0f + 1000) - 1000;
-            if (ix < 0 || iy < 0 || ix >= g->w || iy >= g->h) continue;
-            if (flip) ix = g->w - 1 - ix;
-            unsigned char *s = g->px + (iy * g->w + ix) * 4;
+        float mx = x0 + 0.5f - cx, my = cy - (py + 0.5f);
+        float fx = (mx * ca + my * sa) * inv + hw + 4096;     /* +4096 so (int) rounds down */
+        float fy = (mx * sa - my * ca) * inv + hh + 4096;
+        for (int px = x0; px < x1; px++, fx += dfx, fy += dfy) {
+            int ix = (int)fx - 4096, iy = (int)fy - 4096;
+            if ((unsigned)ix >= (unsigned)gw || (unsigned)iy >= (unsigned)gh) continue;
+            if (flip) ix = gw - 1 - ix;
+            const unsigned char *s = g->px + ((size_t)iy * gw + ix) * 4;
             unsigned a = s[3];
             if (!a) continue;
+            if (a == 255) { row[px] = (row[px] & 0xFF000000u) | (uint32_t)s[0] << 16 | (uint32_t)s[1] << 8 | s[2]; continue; }
             uint32_t d = row[px];
-            unsigned dr = (d >> 16) & 255, dg = (d >> 8) & 255, db = d & 255;
-            dr = (s[0] * a + dr * (255 - a)) / 255;
-            dg = (s[1] * a + dg * (255 - a)) / 255;
-            db = (s[2] * a + db * (255 - a)) / 255;
+            unsigned na = 256 - a; a += 1;
+            unsigned dr = ((s[0] * a + ((d >> 16) & 255) * na) >> 8);
+            unsigned dg = ((s[1] * a + ((d >> 8) & 255) * na) >> 8);
+            unsigned db = ((s[2] * a + (d & 255) * na) >> 8);
             row[px] = (d & 0xFF000000u) | dr << 16 | dg << 8 | db;
         }
     }
@@ -8947,16 +8964,62 @@ TT void _tt_refresh(void) {
                 _tt_image_tick(&_tt.img[g]);
             }
         }
-        XImage *im = XGetImage(d, _tt.buf, 0, 0, _tt.W, _tt.H, AllPlanes, ZPixmap);
-        if (im && im->bits_per_pixel == 32) {
+        /* only touch the parts of the screen that pictures cover (in 32-pixel tiles).
+         * base = our own copy of the drawings, so we never have to ask the X server for pixels */
+        static XImage *frame = NULL, *base = NULL;
+        static unsigned char *tiles = NULL;
+        static int tcols = 0, trows = 0;
+        enum { T = 32 };
+        if (!frame) {
+            frame = XGetImage(d, _tt.canvas, 0, 0, _tt.W, _tt.H, AllPlanes, ZPixmap);
+            tcols = (_tt.W + T - 1) / T; trows = (_tt.H + T - 1) / T;
+            tiles = (unsigned char *)malloc((size_t)tcols * trows);
+            _tt.canvas_dirty = 1;
+        }
+        if (_tt.canvas_dirty || !base) {
+            if (base) XDestroyImage(base);
+            base = XGetImage(d, _tt.canvas, 0, 0, _tt.W, _tt.H, AllPlanes, ZPixmap);
+            _tt.canvas_dirty = 0;
+        }
+        if (frame && base && frame->bits_per_pixel == 32 && base->bits_per_pixel == 32 && tiles) {
+            memset(tiles, 0, (size_t)tcols * trows);
+            long covered = 0;
             for (int i = 0; i < _tt.nt; i++) {
                 _TtTurtle *t = &_tt.t[i];
-                if (t->look == _TT_PIC)
-                    _tt_blit(im, &_tt.img[t->img], _tt.W / 2.0f + t->x, _tt.H / 2.0f - t->y, t->size, _tt_pic_angle(t), t->flip);
+                int x0, y0, x1, y1;
+                if (t->look != _TT_PIC) continue;
+                if (!_tt_pic_box(&_tt.img[t->img], _tt.W / 2.0f + t->x, _tt.H / 2.0f - t->y, t->size, _tt_pic_angle(t), &x0, &y0, &x1, &y1)) continue;
+                for (int r = y0 / T; r <= (y1 - 1) / T; r++)
+                    for (int c = x0 / T; c <= (x1 - 1) / T; c++)
+                        if (!tiles[r * tcols + c]) { tiles[r * tcols + c] = 1; covered++; }
             }
-            XPutImage(d, _tt.buf, _tt.gc, im, 0, 0, 0, 0, _tt.W, _tt.H);
+            int whole = covered * 10 > (long)tcols * trows * 6;        /* most of the screen: just do it all */
+            int span[2048][3], nspan = 0;
+            if (whole) { span[0][0] = 0; span[0][1] = 0; span[0][2] = _tt.W; nspan = 1; }
+            else for (int r = 0; r < trows && nspan < 2048; r++) {
+                int lo = -1, hi = -1;
+                for (int c = 0; c < tcols; c++) if (tiles[r * tcols + c]) { if (lo < 0) lo = c; hi = c; }
+                if (lo >= 0) { span[nspan][0] = r; span[nspan][1] = lo * T; span[nspan][2] = (hi + 1) * T; nspan++; }
+            }
+            for (int k = 0; k < nspan; k++) {                         /* fresh drawings under the pictures */
+                int y = whole ? 0 : span[k][0] * T, h = whole ? _tt.H : (y + T > _tt.H ? _tt.H - y : T);
+                int x = span[k][1], w = (span[k][2] > _tt.W ? _tt.W : span[k][2]) - x;
+                for (int yy = y; yy < y + h; yy++)
+                    memcpy(frame->data + yy * frame->bytes_per_line + x * 4, base->data + yy * base->bytes_per_line + x * 4, (size_t)w * 4);
+            }
+            if (nspan) {
+                for (int i = 0; i < _tt.nt; i++) {
+                    _TtTurtle *t = &_tt.t[i];
+                    if (t->look == _TT_PIC)
+                        _tt_blit(frame, &_tt.img[t->img], _tt.W / 2.0f + t->x, _tt.H / 2.0f - t->y, t->size, _tt_pic_angle(t), t->flip);
+                }
+                for (int k = 0; k < nspan; k++) {
+                    int y = whole ? 0 : span[k][0] * T, h = whole ? _tt.H : (y + T > _tt.H ? _tt.H - y : T);
+                    int x = span[k][1], w = (span[k][2] > _tt.W ? _tt.W : span[k][2]) - x;
+                    XPutImage(d, _tt.buf, _tt.gc, frame, x, y, x, y, (unsigned)w, (unsigned)h);
+                }
+            }
         }
-        if (im) XDestroyImage(im);
     }
 
     /* 2. turtles that are arrows */
@@ -9094,6 +9157,7 @@ TT void _tt_atexit(void) {
 
 TT void _tt_new_turtle_at(int i) {
     _TtTurtle *t = &_tt.t[i];
+    free(t->fill);
     memset(t, 0, sizeof *t);
     t->pen = 1; t->thick = 2; t->look = _TT_NONE; t->size = 1; t->color = BLACK;
 }
@@ -9134,7 +9198,7 @@ TT void window(int w, int h) {
     _tt.canvas = XCreatePixmap(d, _tt.win, w, h, _tt.depth);
     _tt.buf    = XCreatePixmap(d, _tt.win, w, h, _tt.depth);
     XSetForeground(d, _tt.gc, WHITE);
-    XFillRectangle(d, _tt.canvas, _tt.gc, 0, 0, w, h);
+    XFillRectangle(d, _TT_CANVAS, _tt.gc, 0, 0, w, h);
 
     _tt_load_xft();
     if (_tt_xft.ok) {
@@ -9190,7 +9254,7 @@ TT void forward(float distance) {
         if (t->pen) {
             XSetForeground(_tt.dpy, _tt.gc, t->color);
             XSetLineAttributes(_tt.dpy, _tt.gc, t->thick, LineSolid, CapRound, JoinRound);
-            XDrawLine(_tt.dpy, _tt.canvas, _tt.gc, _TT_SX(ox), _TT_SY(oy), _TT_SX(t->x), _TT_SY(t->y));
+            XDrawLine(_tt.dpy, _TT_CANVAS, _tt.gc, _TT_SX(ox), _TT_SY(oy), _TT_SX(t->x), _TT_SY(t->y));
         }
         if (_tt_animate()) { _tt_refresh(); _tt_delay(); }
     }
@@ -9282,7 +9346,7 @@ TT void circle(float radius) {
 TT void dot(int size) {
     _tt_check();
     XSetForeground(_tt.dpy, _tt.gc, _TT_T->color);
-    XFillArc(_tt.dpy, _tt.canvas, _tt.gc, _TT_SX(_TT_T->x) - size / 2, _TT_SY(_TT_T->y) - size / 2,
+    XFillArc(_tt.dpy, _TT_CANVAS, _tt.gc, _TT_SX(_TT_T->x) - size / 2, _TT_SY(_TT_T->y) - size / 2,
              (unsigned)size, (unsigned)size, 0, 360 * 64);
     _tt_show();
 }
@@ -9291,27 +9355,31 @@ TT void dot(int size) {
  * round_box(x, y, width, height, 12);   with round corners */
 TT void round_box(float x, float y, float w, float h, int corner) {
     _tt_check();
-    _tt_rrect(_tt.canvas, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 1);
+    _tt_rrect(_TT_CANVAS, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 1);
     _tt_show();
 }
 TT void box(float x, float y, float w, float h) { round_box(x, y, w, h, 0); }
 /* outline(x, y, width, height, corner);  just the border of a box */
 TT void outline(float x, float y, float w, float h, int corner) {
     _tt_check();
-    _tt_rrect(_tt.canvas, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 0);
+    _tt_rrect(_TT_CANVAS, _TT_SX(x - w / 2), _TT_SY(y + h / 2), (int)w, (int)h, corner, _TT_T->color, 0);
     _tt_show();
 }
 
 /* begin_fill(); ...move around a shape...  end_fill();   colors in the inside */
-TT void begin_fill(void) { _TT_T->filling = 1; _TT_T->nfill = 0; _tt_fill_add(); }
+TT void begin_fill(void) {
+    if (!_TT_T->fill) _TT_T->fill = (XPoint *)malloc(sizeof(XPoint) * _TT_FILLMAX);
+    _TT_T->filling = _TT_T->fill != NULL; _TT_T->nfill = 0; _tt_fill_add();
+}
 TT void end_fill(void) {
     _tt_check();
     _TtTurtle *t = _TT_T;
     if (t->nfill > 2) {
         XSetForeground(_tt.dpy, _tt.gc, t->color);
-        XFillPolygon(_tt.dpy, _tt.canvas, _tt.gc, t->fill, t->nfill, Complex, CoordModeOrigin);
+        XFillPolygon(_tt.dpy, _TT_CANVAS, _tt.gc, t->fill, t->nfill, Complex, CoordModeOrigin);
     }
     t->filling = 0; t->nfill = 0;
+    free(t->fill); t->fill = NULL;
     _tt_show();
 }
 
@@ -9319,7 +9387,7 @@ TT void end_fill(void) {
 TT void clear(void) {
     _tt_check();
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
-    XFillRectangle(_tt.dpy, _tt.canvas, _tt.gc, 0, 0, _tt.W, _tt.H);
+    XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
     if (!_tt.loop_mode) _tt.ntxt = 0;
     for (int i = 0; i < _tt.nt; i++)
         if (_tt.t[i].is_thing) { _tt.t[i].dead = 1; _tt.t[i].look = _TT_NONE; _tt.t[i].moving = _tt.t[i].spinning = 0; }
@@ -9342,16 +9410,16 @@ TT void grid(void) {
     for (int v = -3000; v <= 3000; v += 50) {
         int sx = _TT_SX(v), sy = _TT_SY(v);
         XSetForeground(d, _tt.gc, v == 0 ? axis : faint);
-        if (sx >= 0 && sx < _tt.W) XDrawLine(d, _tt.canvas, _tt.gc, sx, 0, sx, _tt.H);
-        if (sy >= 0 && sy < _tt.H) XDrawLine(d, _tt.canvas, _tt.gc, 0, sy, _tt.W, sy);
+        if (sx >= 0 && sx < _tt.W) XDrawLine(d, _TT_CANVAS, _tt.gc, sx, 0, sx, _tt.H);
+        if (sy >= 0 && sy < _tt.H) XDrawLine(d, _TT_CANVAS, _tt.gc, 0, sy, _tt.W, sy);
     }
     _TtFont *f = _tt_font(11, 0);
     char s[16];
     for (int v = -3000; v <= 3000; v += 100) {
         int sx = _TT_SX(v), sy = _TT_SY(v);
         snprintf(s, sizeof s, "%d", v);
-        if (sx > 0 && sx < _tt.W - 20) _tt_str(_tt.canvas, f, sx + 3, _TT_SY(0) - 4, num, s);
-        if (v && sy > 10 && sy < _tt.H) _tt_str(_tt.canvas, f, _TT_SX(0) + 4, sy - 3, num, s);
+        if (sx > 0 && sx < _tt.W - 20) _tt_str(_TT_CANVAS, f, sx + 3, _TT_SY(0) - 4, num, s);
+        if (v && sy > 10 && sy < _tt.H) _tt_str(_TT_CANVAS, f, _TT_SX(0) + 4, sy - 3, num, s);
     }
     _tt_show();
 }
@@ -9404,7 +9472,7 @@ TT void _tt_image4(const char *file, double x, double y, double scale) {
     if (!im) return;
     if (im->bits_per_pixel == 32) {
         _tt_blit(im, g, _tt.W / 2.0f + (float)x - x0, _tt.H / 2.0f - (float)y - y0, (float)scale, 0, 0);
-        XPutImage(_tt.dpy, _tt.canvas, _tt.gc, im, 0, 0, x0, y0, (unsigned)(x1 - x0), (unsigned)(y1 - y0));
+        XPutImage(_tt.dpy, _TT_CANVAS, _tt.gc, im, 0, 0, x0, y0, (unsigned)(x1 - x0), (unsigned)(y1 - y0));
     }
     XDestroyImage(im);
     _tt_show();
@@ -10406,7 +10474,7 @@ TT void new_screen(void) {
     _tt.dragging = -1;
     _tt.ntxt = 0;
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
-    XFillRectangle(_tt.dpy, _tt.canvas, _tt.gc, 0, 0, _tt.W, _tt.H);
+    XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
     _tt_show();
 }
 

@@ -509,6 +509,12 @@ void home(void) {
 gcc search.c -o search && ./search
 ```
 
+## Speed
+
+crayon only redraws the parts of the window that pictures cover, and keeps its own copy of your drawings.
+On a 1280×720 window: 1 moving picture runs at ~1200 frames/sec, 300 at ~245, 1000 at ~100.
+(`forever` and games are capped at 60 fps so they don't eat your CPU.) Up to 1024 things on screen.
+
 ## Requirements
 
 Emoji need an emoji font installed (most desktops have one; on Arch: `sudo pacman -S noto-fonts-emoji`).
