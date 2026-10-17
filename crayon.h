@@ -8048,7 +8048,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /* ============================================================ */
 /* COLORS   (or make your own: rgb(255, 128, 0)  or  0xFF8000)  */
 /* ============================================================ */
-#define RED      0xE74C3C
+#define RED      0xFF1E1E
 #define GREEN    0x2ECC71
 #define BLUE     0x3498DB
 #define YELLOW   0xF1C40F
@@ -8929,7 +8929,7 @@ TT unsigned long _tt_color_name(const char *s, int *ok) {
         {"lightgray", 0xDADCE0}, {"lightgrey", 0xDADCE0}, {"sky", SKY}, {"grass", GRASS},
         {"navy", 0x1F3A68}, {"lime", 0x7ED957}, {"gold", 0xF5B700}, {"teal", 0x16A085},
         {"magenta", 0xE84393}, {"violet", 0x8E44AD}, {"darkgreen", 0x1E7A46}, {"darkblue", 0x1A3D8F},
-        {"darkred", 0x9B1C1C}, {"lightblue", 0xAED6F1}, {"lightgreen", 0xC8F7C5}, {"beige", 0xF5EBDC},
+        {"darkred", 0x9B1C1C}, {"tomato", 0xE74C3C}, {"brightred", 0xFF0000}, {"lightblue", 0xAED6F1}, {"lightgreen", 0xC8F7C5}, {"beige", 0xF5EBDC},
         {"silver", 0xBDC3C7}, {"maroon", 0x7B1E1E}, {"olive", 0x808000}, {"linkblue", 0x1A0DAB},
     };
     *ok = 1;
@@ -11030,7 +11030,7 @@ TT void _tt_combat_hud(void) {
         int w = 240, h = 24;
         int x = (int)(_tt.W / 2.0f + right) - w, y = (int)(_tt.H / 2.0f - top) - 4;
         float k = _tt_cb.health_max ? (float)_tt_cb.health / _tt_cb.health_max : 0;
-        unsigned long col = k > 0.5f ? 0x2ECC71 : k > 0.25f ? 0xF1C40F : 0xE74C3C;
+        unsigned long col = k > 0.5f ? 0x2ECC71 : k > 0.25f ? 0xF1C40F : RED;
         if (_tt.nhud + 3 <= 16) {
             _tt.hud[_tt.nhud++] = (_TtHud){ x - 3, y - 3, w + 6, h + 6, 10, 0x111111 };
             _tt.hud[_tt.nhud++] = (_TtHud){ x, y, w, h, 8, 0x3a3a3a };
