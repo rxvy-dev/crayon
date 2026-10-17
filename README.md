@@ -220,7 +220,27 @@ clear();                                   // erase everything
 Want to see the pen? Call `arrow();` (or `picture("cat.png");` to make the pen a picture).
 Leave it out and the pen is invisible.
 
-## Pictures
+## Pictures, GIFs and videos
+
+```c
+image("cat.png", 0, 0);           // png, jpg, bmp, tga, psd - built in
+image("dance.gif", 200, 0);       // GIFs play their animation
+image("clip.mp4", -200, 0);       // videos play (and loop) - mp4, webm, mkv, mov, avi
+image("photo.webp", 0, -150);     // webp works too
+sound("music.mp3");               // play a sound (mp3, wav, ogg - or a video's sound)
+stop_sounds();
+```
+
+GIFs and videos can move and turn like any picture: `image("dance.gif", 0, 0) { move_to(300, 0); }`
+
+Videos, webp and sound use `ffmpeg` (`sudo pacman -S ffmpeg` / `sudo apt install ffmpeg`).
+Videos have no sound by themselves - add `sound("clip.mp4");` to hear it.
+Big videos are shrunk to fit the window.
+
+If a picture shows up as a **pink and black box**, crayon couldn't open it - the terminal says why.
+Usually the file isn't in the folder you ran the program from, or it's not really the type its name says.
+
+### More about pictures
 
 ```c
 image("cat.png", 100, 50);        // picture with its middle at (100, 50)
@@ -425,9 +445,9 @@ gcc search.c -o search && ./search
 
 Emoji need an emoji font installed (most desktops have one; on Arch: `sudo pacman -S noto-fonts-emoji`).
 
-Linux with X11 or Wayland (XWayland). Uses `libX11`, `libpng` and (optionally) `libXft`
-for smooth text — all already on any normal desktop Linux. They're loaded at runtime,
-so you never have to link anything.
+Linux with X11 or Wayland (XWayland). Uses `libX11` and (optionally) `libXft` for smooth text — both
+already on any normal desktop Linux, loaded at runtime, so you never link anything. Pictures are decoded
+by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `sound()` need `ffmpeg`.
 
 ## Cheat sheet
 
@@ -439,7 +459,7 @@ box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill() 
 clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
 image("x.png", x, y)  image("x.png", x, y, scale)
-image("x.png", x, y) { }  label("...", x, y) { }  move_to(x, y, speed)  move_by(dx, dy, speed)  lt(deg)  rt(deg)  spin(deg)
+image("x.png/.gif/.mp4", x, y) { }  sound("x.mp3")  stop_sounds()  label("...", x, y) { }  move_to(x, y, speed)  move_by(dx, dy, speed)  lt(deg)  rt(deg)  spin(deg)
 rotate(deg)  rotate_to(deg)  place(x, y)  resize(n)  glide(x, y, speed)  start_spin(deg, speed)  stamp("x.png", x, y)
 add_image("x.png", x, y)  add_text("...", x, y)  change_text(t, "...")  things_touch(a, b)  drag_thing(t)
 text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
