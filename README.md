@@ -316,6 +316,36 @@ repeat(5) { forward(150); right(144); }
 
 <img src="screenshots/pictures.png" width="520">
 
+## Boxes
+
+Give two corners and a color: the **bottom-left** corner, then the **top-right** corner.
+
+```c
+box(-300, -150, -100, 100, "red");        // from (-300, -150) to (-100, 100)
+box_outline("black", 4);                  // a border around the box you just made, 4 thick
+
+box(50, 50, 300, 200, "blue", 25);        // last number = round corners (25 = how round)
+box_outline("navy", 3);                   // the border follows the round corners
+
+box(-50, -200, 250, -80, "gold", 40);
+box_outline("black");                     // no thickness = thin border
+
+box_outline(-350, 150, -150, 220, "purple", 2);   // a border on its own, anywhere
+```
+
+<img src="screenshots/boxes.png" width="560">
+
+| code | what it does |
+|---|---|
+| `box(x1, y1, x2, y2, "color")` | filled box from one corner to the other |
+| `box(x1, y1, x2, y2, "color", round)` | same with round corners |
+| `box_outline("color")` | border around the last box (same roundness) |
+| `box_outline("color", thick)` | thicker border |
+| `box_outline(x1, y1, x2, y2, "color", thick)` | a border anywhere |
+
+Turn on `grid();` to see the numbers while you place boxes. The corners can be in any order.
+`box(x, y, width, height)` with no color still works the old way (x, y = the middle, uses `color()`).
+
 ## Colors
 
 Anywhere you give a color, you can use a **name** or a **hex code**:
