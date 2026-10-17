@@ -8390,7 +8390,11 @@ TT int _tt_xrun(Drawable d, _TtFont *f, int x, int y, const _tt_xcolor *col, con
             int len;
             unsigned ch = _tt_utf8(p, &len);
             void *want = f->xft;
-            if (ch >= 0x80 && _tt_xft.exists && !_tt_xft.exists(_tt.dpy, f->xft, ch)) {
+            int nlen; unsigned next = p[len] ? _tt_utf8(p + len, &nlen) : 0;
+            if (next == 0xFE0F && ch >= 0x80) {                 /* "show as emoji" marker */
+                void *e = _tt_emoji_font(f);
+                if (e && _tt_xft.exists(_tt.dpy, e, ch)) want = e;
+            } else if (ch >= 0x80 && _tt_xft.exists && !_tt_xft.exists(_tt.dpy, f->xft, ch)) {
                 void *e = _tt_emoji_font(f);
                 if (e && _tt_xft.exists(_tt.dpy, e, ch)) want = e;
             }
@@ -10156,7 +10160,9 @@ TT int update(void) {
 
 /* done();   wait for buttons, keys and clicks (you only need this if you use onkey/onclick
  *           style functions in the middle of a program - the window stays open anyway) */
+TT void _tt_game_autoplay(void);
 TT void done(void) {
+    _tt_game_autoplay();
     if (_tt.closed || !_tt.dpy) return;
     _tt.loop_mode = 0;
     _tt_refresh();
@@ -10442,5 +10448,243 @@ TT void dark_mode(void) {
     for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].color == BLACK) _tt.t[i].color = WHITE;
     background(0x202124);
 }
+
+
+/* ============================================================ */
+/* EASY GAMES: no loops needed                                  */
+/*                                                              */
+/*   void got_coin(void) { add_score(1); respawn(); }           */
+/*                                                              */
+/*   player("turtle.png");             arrow keys / WASD move it */
+/*   spawn("coin.png", 5);             5 coins in random spots   */
+/*   on_touch("coin.png", got_coin);   what happens on touch     */
+/*   show_score();                                              */
+/* ============================================================ */
+#define _TT_MAXRULES 32
+static struct {
+    int active, player, over, score, show_score, tank, lives, show_lives;
+    long safe_until;
+    float speed;
+    struct { int img; TtFn fn; } rules[_TT_MAXRULES];
+    int nrules;
+    struct { int img; float speed; } chasers[16];
+    int nchase;
+    struct { int img; float deg; } spinners[16];
+    int nspin;
+    int it;
+    char over_text[100];
+    unsigned long over_color;
+} _tt_game = { 0, -1, 0, 0, 0, 0, 0, 0, 0, 5, {{0, 0}}, 0, {{0, 0}}, 0, {{0, 0}}, 0, -1, "", 0 };
+
+TT void _tt_random_spot(float *x, float *y) {
+    float px = 99999, py = 99999;
+    if (_tt_game.player >= 0) { px = _tt.t[_tt_game.player].x; py = _tt.t[_tt_game.player].y; }
+    for (int tries = 0; tries < 30; tries++) {             /* not right on top of the player */
+        *x = (float)rnd(-_tt.W / 2 + 40, _tt.W / 2 - 40);
+        *y = (float)rnd(-_tt.H / 2 + 40, _tt.H / 2 - 70);
+        float dx = *x - px, dy = *y - py;
+        if (dx * dx + dy * dy > 150 * 150) return;
+    }
+}
+
+/* player("turtle.png");      makes the player. Arrow keys or WASD move it.
+ * player_speed(8);           faster (5 is normal)
+ * tank_controls();           LEFT/RIGHT turn it and UP walks forward instead */
+TT Thing player(const char *file) {
+    _tt_check();
+    _tt_game.active = 1;
+    Thing th = _tt_add_image3(file, 0, 0);
+    _tt.t[th].upright = 1;
+    _tt_game.player = th;
+    return th;
+}
+TT void player_speed(float s) { _tt_game.speed = s; }
+TT void tank_controls(void) { _tt_game.tank = 1; if (_tt_game.player >= 0) _tt.t[_tt_game.player].upright = 0; }
+
+/* spawn("coin.png", 5);          puts 5 of them in random spots
+ * spawn_at("wall.png", 100, 0);  puts one at a spot */
+TT void spawn(const char *file, int how_many) {
+    _tt_check();
+    _tt_game.active = 1;
+    for (int i = 0; i < how_many; i++) {
+        float x, y;
+        _tt_random_spot(&x, &y);
+        _tt_add_image3(file, x, y);
+    }
+}
+TT Thing spawn_at(const char *file, double x, double y) { _tt_check(); _tt_game.active = 1; return _tt_add_image3(file, x, y); }
+
+/* on_touch("coin.png", got_coin);   when the player touches ANY coin, got_coin() runs.
+ * Inside that function you can use:
+ *     respawn();      move the coin to a new random spot
+ *     remove_it();    make the coin disappear
+ *     it()            the coin that got touched (for move_to(it(), ...) etc.) */
+TT void on_touch(const char *file, TtFn fn) {
+    _tt_check();
+    _tt_game.active = 1;
+    if (_tt_game.nrules >= _TT_MAXRULES) return;
+    _tt_game.rules[_tt_game.nrules].img = _tt_image(file);
+    _tt_game.rules[_tt_game.nrules].fn = fn;
+    _tt_game.nrules++;
+}
+TT Thing it(void) { return _tt_game.it; }
+TT void respawn(void) {
+    int th = _tt_game.it;
+    if (th < 0) return;
+    float x, y;
+    _tt_random_spot(&x, &y);
+    _tt.t[th].x = x; _tt.t[th].y = y; _tt.t[th].moving = 0;
+}
+TT void remove_it(void) {
+    int th = _tt_game.it;
+    if (th < 0) return;
+    _tt.t[th].dead = 1; _tt.t[th].look = _TT_NONE;
+}
+
+/* chase("ghost.png", 2);      every ghost walks toward the player at speed 2
+ * spin_all("coin.png", 4);    every coin spins (4 = speed) */
+TT void chase(const char *file, float speed) {
+    _tt_check();
+    _tt_game.active = 1;
+    if (_tt_game.nchase >= 16) return;
+    _tt_game.chasers[_tt_game.nchase].img = _tt_image(file);
+    _tt_game.chasers[_tt_game.nchase].speed = speed;
+    _tt_game.nchase++;
+}
+TT void spin_all(const char *file, float speed) {
+    _tt_check();
+    if (_tt_game.nspin >= 16) return;
+    _tt_game.spinners[_tt_game.nspin].img = _tt_image(file);
+    _tt_game.spinners[_tt_game.nspin].deg = speed;
+    _tt_game.nspin++;
+}
+
+/* add_score(1);  score()  show_score();       a score in the top-left corner
+ * lives(3);  lose_life();  lives_left()        lives in the top-right corner (0 lives = game over) */
+TT void add_score(int n) { _tt_game.score += n; }
+TT int score(void) { return _tt_game.score; }
+TT void show_score(void) { _tt_game.show_score = 1; }
+TT void lives(int n) { _tt_game.lives = n; _tt_game.show_lives = 1; }
+TT int lives_left(void) { return _tt_game.lives; }
+
+/* game_over("You lost!");   big message, everything stops.  Press SPACE to play again.
+ * you_win("You win!");      same, but happy */
+TT void game_over(const char *msg) {
+    _tt_game.over = 1;
+    snprintf(_tt_game.over_text, sizeof _tt_game.over_text, "%s", msg ? msg : "GAME OVER");
+    _tt_game.over_color = RED;
+}
+TT void you_win(const char *msg) {
+    _tt_game.over = 2;
+    snprintf(_tt_game.over_text, sizeof _tt_game.over_text, "%s", msg ? msg : "YOU WIN!");
+    _tt_game.over_color = GREEN;
+}
+TT void lose_life(void) {
+    if (frames() < _tt_game.safe_until) return;                  /* still blinking from the last hit */
+    _tt_game.safe_until = frames() + 90;                          /* 1.5 seconds safe */
+    if (_tt_game.lives > 0) _tt_game.lives--;
+    if (_tt_game.lives <= 0 && _tt_game.show_lives) game_over("GAME OVER");
+}
+
+TT void _tt_game_restart(void) {
+    _tt_game.over = 0; _tt_game.score = 0; _tt_game.safe_until = frames() + 60;
+    if (_tt_game.player >= 0) _tt.t[_tt_game.player].look = _TT_PIC;
+    if (_tt_game.show_lives && _tt_game.lives <= 0) _tt_game.lives = 3;
+    for (int i = 0; i < _tt.nt; i++) {
+        _TtTurtle *t = &_tt.t[i];
+        if (!t->is_thing) continue;
+        if (i == _tt_game.player) { t->x = 0; t->y = 0; continue; }
+        if (t->dead && t->img >= 0) { t->dead = 0; t->look = _TT_PIC; }
+        float x, y; _tt_random_spot(&x, &y); t->x = x; t->y = y;
+    }
+}
+
+/* one frame of the game: move, chase, spin, check touches */
+TT void _tt_game_step(void) {
+    int p = _tt_game.player;
+    if (_tt_game.over) {
+        if (click(SPACE) || click(ENTER)) _tt_game_restart();
+    } else {
+        if (p >= 0 && !_tt.t[p].dead) {
+            _TtTurtle *pl = &_tt.t[p];
+            float s = _tt_game.speed;
+            if (_tt_game.tank) {
+                if (hold(UP) || hold('w'))    { pl->x += _tt_cosd(pl->heading) * s; pl->y += _tt_sind(pl->heading) * s; }
+                if (hold(DOWN) || hold('s'))  { pl->x -= _tt_cosd(pl->heading) * s * 0.6f; pl->y -= _tt_sind(pl->heading) * s * 0.6f; }
+                if (hold(LEFT) || hold('a'))  pl->heading += 5;
+                if (hold(RIGHT) || hold('d')) pl->heading -= 5;
+            } else {
+                float dx = 0, dy = 0;
+                if (hold(UP) || hold('w'))    dy += 1;
+                if (hold(DOWN) || hold('s'))  dy -= 1;
+                if (hold(LEFT) || hold('a'))  { dx -= 1; pl->flip = 1; }
+                if (hold(RIGHT) || hold('d')) { dx += 1; pl->flip = 0; }
+                if (dx && dy) { dx *= 0.7071f; dy *= 0.7071f; }
+                pl->x += dx * s; pl->y += dy * s;
+            }
+            pl->look = (frames() < _tt_game.safe_until && (frames() / 6) % 2) ? _TT_NONE : _TT_PIC;   /* blink */
+            float mx = _tt.W / 2.0f - 20, my = _tt.H / 2.0f - 20;      /* stay on screen */
+            if (pl->x < -mx) pl->x = -mx;
+            if (pl->x > mx) pl->x = mx;
+            if (pl->y < -my) pl->y = -my;
+            if (pl->y > my) pl->y = my;
+        }
+        for (int i = 0; i < _tt.nt; i++) {
+            _TtTurtle *t = &_tt.t[i];
+            if (!t->is_thing || t->dead || t->look == _TT_NONE || i == p) continue;
+            for (int c = 0; c < _tt_game.nchase; c++)
+                if (t->img == _tt_game.chasers[c].img && p >= 0) {
+                    float dx = _tt.t[p].x - t->x, dy = _tt.t[p].y - t->y, d = _tt_sqrt(dx * dx + dy * dy);
+                    if (d > 1) { t->x += dx / d * _tt_game.chasers[c].speed; t->y += dy / d * _tt_game.chasers[c].speed; }
+                    t->flip = dx < 0;
+                }
+            for (int k = 0; k < _tt_game.nspin; k++)
+                if (t->img == _tt_game.spinners[k].img) t->heading -= _tt_game.spinners[k].deg;
+        }
+        if (p >= 0 && !_tt.t[p].dead) {
+            for (int i = 0; i < _tt.nt && !_tt_game.over; i++) {
+                _TtTurtle *t = &_tt.t[i];
+                if (!t->is_thing || t->dead || t->look == _TT_NONE || i == p) continue;
+                for (int r = 0; r < _tt_game.nrules; r++)
+                    if (t->img == _tt_game.rules[r].img && things_touch(p, i)) {
+                        _tt_game.it = i;
+                        int keep = _tt.cur;
+                        if (_tt_game.rules[r].fn) _tt_game.rules[r].fn();
+                        _tt.cur = keep;
+                        _tt_game.it = -1;
+                        break;
+                    }
+            }
+        }
+    }
+    /* score, lives, game over */
+    int keep = _tt.cur; _tt.cur = 0;
+    unsigned long oc = _TT_T->color; int os = _tt.tsize, ob = _tt.tbold;
+    textsize(32); bold(1);
+    _TT_T->color = _tt_light(_tt.bg) ? 0x222222 : WHITE;
+    if (_tt_game.show_score) text("Score: %d", -_tt.W / 2.0f + 20, _tt.H / 2.0f - 45, _tt_game.score);
+    if (_tt_game.show_lives) {
+        char hearts[64] = "";
+        for (int i = 0; i < _tt_game.lives && i < 10; i++) strcat(hearts, "❤️");
+        text("%s", _tt.W / 2.0f - 20 - text_width(hearts), _tt.H / 2.0f - 45, hearts);
+    }
+    if (_tt_game.over) {
+        textsize(80);
+        _TT_T->color = _tt_game.over_color;
+        text_center("%s", 0, 20, _tt_game.over_text);
+        textsize(26); bold(0);
+        _TT_T->color = _tt_light(_tt.bg) ? 0x444444 : 0xDDDDDD;
+        text_center("press SPACE to play again", 0, -50);
+    }
+    textsize(os); bold(ob); _TT_T->color = oc; _tt.cur = keep;
+}
+
+/* play();    starts the game (you can leave it out - the game starts by itself at the end of main) */
+TT void play(void) {
+    _tt_check();
+    _tt_game.active = 1;
+    while (update()) _tt_game_step();
+}
+TT void _tt_game_autoplay(void) { if (_tt_game.active && _tt.dpy && !_tt.closed) play(); }
 
 #endif

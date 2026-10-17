@@ -344,7 +344,57 @@ else          text("{red}%s", 0, 0, run_output());   // show the error
 Every `%s` goes in as **one quoted word**, so whatever someone types can't sneak in extra commands
 (`x; rm -rf ~` stays just text). `%d` works for numbers. The window keeps working while a command runs.
 
-## Games
+## Easy games (no loops)
+
+```c
+#include "crayon.h"
+
+void got_coin(void) {
+    add_score(1);
+    respawn();                      // the coin jumps somewhere new
+    if (score() == 15) you_win("YOU WIN!");
+}
+
+void got_hit(void) {
+    lose_life();                    // you blink and are safe for a moment
+    respawn();
+}
+
+int main(void) {
+    window(800, 560);
+    background("lightgreen");
+
+    player("turtle.png");           // arrow keys or WASD move it
+    spawn("coin.png", 5);           // 5 coins in random spots
+    spawn("star.png", 2);           // 2 enemies
+
+    on_touch("coin.png", got_coin); // touch a coin -> got_coin() runs
+    on_touch("star.png", got_hit);
+
+    spin_all("coin.png", 4);        // coins spin
+    chase("star.png", 1);           // stars chase you
+
+    show_score();
+    lives(3);                       // 0 lives = game over (SPACE to play again)
+}
+```
+
+That's the whole game - it starts by itself at the end of `main`.
+
+| | |
+|---|---|
+| `player("x.png")` | you - arrow keys / WASD. `player_speed(8)`, `tank_controls()` |
+| `spawn("x.png", 5)` / `spawn_at("x.png", x, y)` | put things in the world |
+| `on_touch("x.png", fn)` | run `fn()` when you touch one |
+| inside that fn | `respawn()`, `remove_it()`, `it()` (the thing you touched) |
+| `chase("x.png", speed)` / `spin_all("x.png", speed)` | make them chase you / spin |
+| `add_score(1)`, `score()`, `show_score()` | score in the top-left |
+| `lives(3)`, `lose_life()`, `lives_left()` | hearts in the top-right |
+| `game_over("msg")`, `you_win("msg")` | end screen, SPACE plays again |
+
+See `coins.c`.
+
+## Games (with forever)
 
 ```c
 Turtle player = new_turtle();
@@ -451,6 +501,7 @@ void home(void) {
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
 | `commands.c` | type words, new things appear |
 | `pictures.c` | a picture pen and an arrow pen drawing together |
+| `coins.c` | a full coin game with no loops: `player()`, `spawn()`, `on_touch()` |
 | `game.c` | a small arcade game |
 | `search.c` | Turtlr, the pretend search engine |
 
@@ -485,6 +536,8 @@ button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
 run("cmd %s", word)  run_ok()  run_output()
+player("x.png")  spawn("x.png", n)  on_touch("x.png", fn)  respawn()  remove_it()  chase("x.png", s)
+add_score(n)  show_score()  lives(n)  lose_life()  game_over("..")  you_win("..")
 forever { }  key(k) { }  press(k) { }  mouse_x()  mouse_y()  rnd(a, b)  wait_for(sec)
 ```
 
