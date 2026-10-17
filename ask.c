@@ -6,9 +6,9 @@
 
 void page(void) {
     clear();                                   /* wipe the old answer */
-    image("turtle.png", 0, 120, 2);
+    image("coogle.png", 0, 120, 0.5);
     textsize(22);
-    text_center("{white}Ask the turtle anything!", 0, 40);
+    text_center("{white}Ask coogle anything!", 0, 40);
 }
 
 int main(void) {

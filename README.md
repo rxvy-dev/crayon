@@ -76,24 +76,96 @@ It's only one header file, and it builds with plain `gcc` — no `-lX11`, no `-l
 
 ---
 
+## Where things go (coordinates)
+
+The middle of the window is **(0, 0)**. **x** goes right (negative = left), **y** goes up (negative = down).
+A `window(800, 500)` goes from **-400 to 400** across and **-250 to 250** up and down.
+
+```c
+window(800, 500);
+grid();          // draws the numbers on screen
+show_coords();   // shows where your mouse is - hover where you want something, copy the numbers
+```
+
+<img src="screenshots/place.png" width="560">
+
+Every function that puts something on screen takes the **x, y** after the words:
+
+```c
+text("Hello", -300, 200);              // words start at (-300, 200)
+text_center("Title", 0, 200);          // words centered on (0, 200)
+button("Play", 0, -100, play);         // button centered on (0, -100)
+image("logo.png", 0, 150);             // picture centered on (0, 150)
+inputbox("Type...", 0, -200, 500, fn); // box centered on (0, -200), 500 wide
+```
+
+## Buttons anywhere
+
+```c
+void hi(void) {                         // what happens when it's clicked
+    text_center("{green}You clicked a button!", 0, 40);
+}
+
+int main(void) {
+    window(800, 500);
+
+    button("Top left",     -320,  190, hi);
+    button("Top right",     320,  190, hi);
+    button("Middle",          0,    0, hi);
+    button("Bottom left",  -320, -190, hi);
+    button("Bottom right",  320, -190, hi);
+}
+```
+
+- `button("words", x, y, function)` — the function runs every time it's clicked.
+- `button_color("blue", "white");` — set the colors **before** making the button.
+- `textsize(20);` before a button makes its words bigger.
+- `link("words", x, y, function)` — same thing, but it looks like clickable text.
+- `remove_button("words");` — takes it away. `new_screen();` removes everything.
+
+Want to wait for a click instead of using a function?
+
+```c
+button("Yes", -60, 0);
+button("No", 60, 0);
+const char *b = wait_button();          // waits, then gives back the words on the button
+if (same(b, "Yes")) text("yay", 0, -60);
+```
+
 ## Draw
 
 ```c
-window(600, 400);
-arrow();               // show the arrow (or nothing = invisible pen)
+window(800, 500);
+speed(0);                 // draw instantly (1 = slow ... 10 = fast)
 
-forward(100);
-right(90);             // any number: right(37), left(720) ...
-circle(50);
-go_to(100, 50);        // jump to a spot
-dot(20);
-color("red");          // names or "#ff8800"
-thickness(5);
-background("sky");
+go_to(-350, 150);         // jump somewhere (doesn't draw)
+color("red");
+thickness(4);
+forward(120);             // a line
+
+repeat(4) { forward(80); right(90); }      // a square
+
+begin_fill();                               // a filled triangle
+repeat(3) { forward(90); left(120); }
+end_fill();
+
+walk_to(150, 50);         // a line from here to (150, 50)
+circle(50);               // a circle
+dot(40);                  // a filled dot
+
+box(-280, -130, 140, 70);                  // x, y (the middle), width, height
+round_box(-80, -130, 140, 70, 20);         // with round corners
+outline(120, -130, 140, 70, 10);           // just the border
+
+image("turtle.png", 300, -130);            // a picture
+background("sky");                         // whole window color
+clear();                                   // erase everything
 ```
 
-The middle of the window is `(0, 0)`. `x` goes right, `y` goes up.
-Not sure where something is? Call `grid();` and the numbers show up on screen.
+<img src="screenshots/draw.png" width="560">
+
+Want to see the pen? Call `arrow();` (or `picture("cat.png");` to make the pen a picture).
+Leave it out and the pen is invisible.
 
 ## Pictures
 
@@ -205,9 +277,9 @@ they typed, so "what is linux" still matches `"linux"`.
 
 void page(void) {
     clear();                                   // wipe the old answer
-    image("turtle.png", 0, 120, 2);
+    image("coogle.png", 0, 120, 0.5);          // coogle.png is in this repo
     textsize(22);
-    text_center("{white}Ask the turtle anything!", 0, 40);
+    text_center("{white}Ask coogle anything!", 0, 40);
 }
 
 int main(void) {
@@ -274,6 +346,8 @@ void home(void) {
 | file | what it shows |
 |---|---|
 | `square.c` | the classic square |
+| `draw.c` | every way to draw: lines, shapes, fills, boxes, pictures |
+| `place.c` | buttons in every corner, with the coordinate grid |
 | `gallery.c` | pictures anywhere with `image()` |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
