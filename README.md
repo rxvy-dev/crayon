@@ -133,36 +133,55 @@ const char *b = wait_button();          // waits, then gives back the words on t
 if (same(b, "Yes")) text("yay", 0, -60);
 ```
 
-## Move and spin things
+## Move and turn pictures and text
 
-Make a picture or text into a **thing**, then slide it anywhere at any speed and rotate it.
+Put `{ }` after a picture or text, and everything inside moves **that** picture:
 
 ```c
-Thing cat   = add_image("cat.png", -300, 0);          // a picture you can move
-Thing title = add_text("{rainbow}Hello! 🐢", 0, 150);  // text you can move (uses textsize/bold/color)
+image("turtle.png", -300, 0) {
+    move_to(300, 0);        // slide to (300, 0)
+    lt(90);                 // turn left 90
+    move_by(0, 100, 8);     // go up 100, at speed 8
+    rt(180);                // turn right 180
+    spin(360, 12);          // spin all the way around, fast
+}
 
-move_to(cat, 300, 0, 5);      // slide to (300, 0) at speed 5 - waits until it gets there
-move_by(cat, -100, 50, 5);    // slide 100 left and 50 up
-place(cat, 0, 0);             // jump there instantly
+label("{rainbow}Hello! 🐢", 0, -200) {   // label = text you can move
+    move_to(0, -100);
+    rt(20);                 // tilt it
+}
 
-rotate(cat, 45);              // turn 45 degrees clockwise (-45 = the other way)
-rotate_to(cat, 0);            // set the angle exactly
-spin(cat, 360, 6);            // spin all the way around at speed 6 - waits until done
-
-glide(cat, -300, 0, 4);       // start sliding but DON'T wait...
-start_spin(title, 360, 3);    // ...so this spins at the same time
-wait_for(3);
-
-change_text(title, "Score: %d", 10);   // new words
-resize(cat, 2);               // twice as big
-hide_thing(cat);  show_thing(cat);
-x_of(cat);  y_of(cat);        // where it is
-drag_thing(cat);              // drag it with the mouse
-if (things_touch(cat, title)) { ... }
+image("star.png", -300, 150);            // no { } = just show it
 ```
 
-Speed: `1` = slow, `5` = normal, `20` = fast, `0` = instant.
-`move_to` and `spin` **wait** until they're done. `glide` and `start_spin` **don't wait**, so lots of things can move at once.
+| inside `{ }` | does |
+|---|---|
+| `move_to(x, y)` / `move_to(x, y, speed)` | slide to a spot |
+| `move_by(100, 0)` / `move_by(dx, dy, speed)` | slide 100 to the right |
+| `lt(90)` / `rt(90)` | turn left / right (add a speed: `rt(90, 10)`) |
+| `spin(360)` / `spin(360, 12)` | spin around |
+| `rotate(45)` / `rotate_to(0)` | turn instantly / set the exact angle |
+| `place(x, y)` | jump there instantly |
+| `resize(2)` | twice as big |
+| `glide(x, y, speed)` / `start_spin(deg, speed)` | start moving but **don't wait** |
+| `wait_for(1)` | pause a second |
+
+Speed: `1` = slow, `5` = normal (the default), `20` = fast, `0` = instant.
+Everything waits until it's done, except `glide` and `start_spin` — use those to move two things at the same time.
+Loops work inside too: `repeat(3) { move_by(100, 0); move_by(-100, 0); }`
+
+**Want to move it again later?** Give it a name:
+
+```c
+Thing cat = add_image("cat.png", 0, 0);
+Thing score = add_text("Score: 0", -300, 200);
+
+move_to(cat, 300, 0, 5);           // the name goes first
+rt(90);                            // (lt/rt/spin with no name move the last thing you made)
+change_text(score, "Score: %d", 10);
+if (things_touch(cat, score)) { ... }
+drag_thing(cat);                   // drag it with the mouse
+```
 
 See `move.c`.
 
@@ -206,6 +225,10 @@ Leave it out and the pen is invisible.
 ```c
 image("cat.png", 100, 50);        // picture with its middle at (100, 50)
 image("cat.png", 100, 50, 2);     // twice as big
+image("cat.png", 100, 50) {       // ...and move it (see "Move and turn" below)
+    move_to(300, 50);
+    rt(90);
+}
 ```
 
 <img src="screenshots/gallery.png" width="520">
@@ -386,7 +409,7 @@ void home(void) {
 | `draw.c` | every way to draw: lines, shapes, fills, boxes, pictures |
 | `place.c` | buttons in every corner, with the coordinate grid |
 | `gallery.c` | pictures anywhere with `image()` |
-| `move.c` | slide and spin pictures and text with `move_to()`, `glide()`, `spin()` |
+| `move.c` | move and turn pictures and text with `image(...) { move_to(); lt(); rt(); }` |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
 | `commands.c` | type words, new things appear |
@@ -416,8 +439,9 @@ box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill() 
 clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
 image("x.png", x, y)  image("x.png", x, y, scale)
-add_image("x.png", x, y)  add_text("...", x, y)  move_to(t, x, y, speed)  glide(t, x, y, speed)  move_by(t, dx, dy, speed)
-place(t, x, y)  rotate(t, deg)  rotate_to(t, deg)  spin(t, deg, speed)  start_spin(t, deg, speed)  change_text(t, "...")  resize(t, n)
+image("x.png", x, y) { }  label("...", x, y) { }  move_to(x, y, speed)  move_by(dx, dy, speed)  lt(deg)  rt(deg)  spin(deg)
+rotate(deg)  rotate_to(deg)  place(x, y)  resize(n)  glide(x, y, speed)  start_spin(deg, speed)  stamp("x.png", x, y)
+add_image("x.png", x, y)  add_text("...", x, y)  change_text(t, "...")  things_touch(a, b)  drag_thing(t)
 text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")

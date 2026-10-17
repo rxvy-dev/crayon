@@ -82,6 +82,8 @@
 #define key(k)   if (hold(k))
 #define press(k) if (click(k))
 
+#define _TT_PICK2(_1, _2, NAME, ...) NAME
+#define _TT_PICK3(_1, _2, _3, NAME, ...) NAME
 #define _TT_PICK4(_1, _2, _3, _4, NAME, ...) NAME
 #define _TT_PICK5(_1, _2, _3, _4, _5, NAME, ...) NAME
 
@@ -225,6 +227,7 @@ typedef struct {
     float x, y, heading;
     int pen, thick, look, img, has_pic, flip, upright, drag, filling, nfill;
     int moving, spinning; float goal_x, goal_y, move_speed, spin_left, spin_speed;
+    int is_thing, dead;
     float size;
     unsigned long color;
     XPoint fill[_TT_FILLMAX];
@@ -257,7 +260,7 @@ static struct {
     unsigned long bg;
 
     _TtTurtle t[_TT_MAXT];
-    int nt, cur;
+    int nt, cur, last_thing, blk_depth, blk_save[16];
 
     _TtImage img[_TT_MAXI];
     int nimg;
@@ -860,7 +863,7 @@ TT void window(int w, int h) {
     _tt.vis = DefaultVisual(d, scr); _tt.cmap = DefaultColormap(d, scr);
     _tt.spd = 5; _tt.bg = WHITE; _tt.tsize = 18;
     _tt.nt = 1; _tt.cur = 0; _tt_new_turtle_at(0);
-    _tt.dragging = -1; _tt.clicked_t = -1; _tt.frame = 1;
+    _tt.dragging = -1; _tt.clicked_t = -1; _tt.frame = 1; _tt.last_thing = -1;
     snprintf(_tt.hint, sizeof _tt.hint, "Type here...");
     _tt.bar_c = 0xF1F3F4;
     _tt.btn_c = 0xF8F9FA; _tt.btn_text = 0x202124;
@@ -1072,6 +1075,9 @@ TT void clear(void) {
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
     XFillRectangle(_tt.dpy, _tt.canvas, _tt.gc, 0, 0, _tt.W, _tt.H);
     if (!_tt.loop_mode) _tt.ntxt = 0;
+    for (int i = 0; i < _tt.nt; i++)
+        if (_tt.t[i].is_thing) { _tt.t[i].dead = 1; _tt.t[i].look = _TT_NONE; _tt.t[i].moving = _tt.t[i].spinning = 0; }
+    if (_tt.dragging >= 0 && _tt.t[_tt.dragging].dead) _tt.dragging = -1;
     _tt_show();
 }
 /* background("sky");   erase everything and change the background color */
@@ -1135,9 +1141,8 @@ TT void flip(int on) { _TT_T->flip = on; _tt_show(); }
 /* keep_upright();          the picture moves but doesn't spin when you turn */
 TT void keep_upright(void) { _TT_T->upright = 1; _tt_show(); }
 
-/* image("cat.png", 100, 50);        draws a picture with its middle at (x, y)
- * image("cat.png", 100, 50, 2);     same, 2 times bigger (0.5 = half size)
- * It stays on the screen like a drawing - clear() or new_screen() erase it. */
+/* stamp("cat.png", 100, 50);        paints a picture onto the drawing (it can't move after)
+ * stamp("cat.png", 100, 50, 2);     same, 2 times bigger */
 TT void _tt_image4(const char *file, double x, double y, double scale) {
     _tt_check();
     if (scale <= 0) return;
@@ -1159,7 +1164,7 @@ TT void _tt_image4(const char *file, double x, double y, double scale) {
     _tt_show();
 }
 TT void _tt_image3(const char *file, double x, double y) { _tt_image4(file, x, y, 1); }
-#define image(...) _TT_PICK4(__VA_ARGS__, _tt_image4, _tt_image3, 0, 0)(__VA_ARGS__)
+#define stamp(...) _TT_PICK4(__VA_ARGS__, _tt_image4, _tt_image3, 0, 0)(__VA_ARGS__)
 
 /* ============================================================ */
 /* THINGS: pictures and text you can move, spin and change      */
@@ -1215,93 +1220,165 @@ TT int _tt_text_image(const char *s, int slot) {
     return i;
 }
 
-TT Thing _tt_new_thing(int img, double x, double y) {
+/* finds a turtle slot for a new thing (reuses ones that clear() threw away) */
+TT int _tt_thing_slot(int *old_img) {
+    *old_img = -1;
+    for (int i = 0; i < _tt.nt; i++)
+        if (_tt.t[i].is_thing && _tt.t[i].dead) { *old_img = _tt.t[i].img; return i; }
     int keep = _tt.cur;
-    Thing th = new_turtle();
-    _TtTurtle *t = &_tt.t[th];
-    t->img = img; t->look = _TT_PIC; t->has_pic = 1; t->pen = 0;
-    t->x = (float)x; t->y = (float)y;
+    int i = new_turtle();
     _tt.cur = keep;
+    return i;
+}
+TT Thing _tt_setup_thing(int th, int img, double x, double y) {
+    _tt_new_turtle_at(th);
+    _TtTurtle *t = &_tt.t[th];
+    t->is_thing = 1; t->img = img; t->look = _TT_PIC; t->has_pic = 1; t->pen = 0;
+    t->x = (float)x; t->y = (float)y;
+    _tt.last_thing = th;
     _tt_show();
     return th;
 }
+TT int _tt_is_text_img(int img) { return img >= 0 && img < _tt.nimg && _tt.img[img].name[0] == '\x01'; }
 
 /* Thing cat = add_image("cat.png", 0, 0);       a picture you can move later
- * Thing hi  = add_text("{red}Hello!", 0, 100);  text you can move later (uses textsize, bold, color)
- * Thing s   = add_text("Score: %d", -300, 200, score); */
-TT Thing add_image(const char *file, double x, double y) { _tt_check(); return _tt_new_thing(_tt_image(file), x, y); }
+ * Thing hi  = add_text("{red}Hello!", 0, 100);  text you can move later (uses textsize, bold, color) */
+TT Thing _tt_add_image4(const char *file, double x, double y, double scale) {
+    _tt_check();
+    int old, th = _tt_thing_slot(&old);
+    _tt_setup_thing(th, _tt_image(file), x, y);
+    _tt.t[th].size = (float)scale;
+    return th;
+}
+TT Thing _tt_add_image3(const char *file, double x, double y) { return _tt_add_image4(file, x, y, 1); }
+#define add_image(...) _TT_PICK4(__VA_ARGS__, _tt_add_image4, _tt_add_image3, 0, 0)(__VA_ARGS__)
 TT Thing add_text(const char *fmt, double x, double y, ...) {
     _tt_check();
     char b[200]; va_list a; va_start(a, y); vsnprintf(b, sizeof b, fmt, a); va_end(a);
-    return _tt_new_thing(_tt_text_image(b, -1), x, y);
+    int old, th = _tt_thing_slot(&old);
+    return _tt_setup_thing(th, _tt_text_image(b, _tt_is_text_img(old) ? old : -1), x, y);
 }
 /* change_text(score, "Score: %d", points);   new words for a text thing */
 TT void change_text(Thing th, const char *fmt, ...) {
     if (th < 0 || th >= _tt.nt) return;
     char b[200]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
     int img = _tt.t[th].img;
-    int is_text = img >= 0 && _tt.img[img].name[0] == '\x01';
-    _tt.t[th].img = _tt_text_image(b, is_text ? img : -1);
+    _tt.t[th].img = _tt_text_image(b, _tt_is_text_img(img) ? img : -1);
     _tt_show();
 }
 
+/* ---- blocks:  image("cat.png", 0, 0) { move_to(300, 0); rt(90); }  ---- */
+TT int _tt_enter(Thing th) {
+    if (_tt.blk_depth < 16) _tt.blk_save[_tt.blk_depth] = _tt.cur;
+    _tt.blk_depth++;
+    if (th >= 0) _tt.cur = th;
+    return 1;
+}
+TT int _tt_leave(void) {
+    if (_tt.blk_depth > 0) _tt.blk_depth--;
+    if (_tt.blk_depth < 16) _tt.cur = _tt.blk_save[_tt.blk_depth];
+    return 0;
+}
+/* image("cat.png", 0, 0);              shows a picture at (x, y) (its middle)
+ * image("cat.png", 0, 0, 2);           2 times bigger
+ * image("cat.png", 0, 0) { ... }       ...and everything inside { } moves THAT picture:
+ *     move_to(300, 0);  move_by(100, 0);  lt(90);  rt(45);  spin(360);  resize(2); ... */
+#define image(...) for (int _tt_blk = _tt_enter(add_image(__VA_ARGS__)); _tt_blk; _tt_blk = _tt_leave())
+/* label("Hello", 0, 100) { ... }       same thing for text (uses textsize, bold, color) */
+#define label(...) for (int _tt_blk = _tt_enter(add_text(__VA_ARGS__)); _tt_blk; _tt_blk = _tt_leave())
+
+/* the thing being moved: the one whose { } you're in, or else the last one you made */
+TT Thing _tt_it(void) { return _TT_T->is_thing ? _tt.cur : _tt.last_thing; }
+
 #define _TT_TH(th) if ((th) < 0 || (th) >= _tt.nt) return
 
-/* place(cat, 100, 50);              jump there right away */
-TT void place(Thing th, double x, double y) { _TT_TH(th); _tt.t[th].x = (float)x; _tt.t[th].y = (float)y; _tt.t[th].moving = 0; _tt_show(); }
+TT void _tt_wait_still(Thing th) {
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    while (th >= 0 && th < _tt.nt && (_tt.t[th].moving || _tt.t[th].spinning)) _tt_wait_tick();
+    _tt.loop_mode = lm;
+}
 
-/* glide(cat, 300, 100, 5);          start sliding to (300, 100) at speed 5 - your code keeps going,
- *                                   so many things can slide at the same time */
-TT void glide(Thing th, double x, double y, double speed) {
+/* ---- moving ----
+ * move_to(300, 100);          slide there and wait          move_to(300, 100, 10);   at speed 10
+ * move_by(100, 0);            slide 100 to the right        move_by(100, 0, 10);
+ * glide(300, 100, 5);         start sliding, DON'T wait (so other things can move at the same time)
+ * place(300, 100);            jump there right away
+ * Speed: 1 = slow, 5 = normal (the default), 20 = fast, 0 = instant.
+ * Outside a { } block, put the thing first:  move_to(cat, 300, 100, 5); */
+TT void _tt_glide(Thing th, double x, double y, double speed) {
     _TT_TH(th);
     _TtTurtle *t = &_tt.t[th];
     t->goal_x = (float)x; t->goal_y = (float)y; t->move_speed = (float)speed; t->moving = 1;
     if (speed <= 0) { t->x = (float)x; t->y = (float)y; t->moving = 0; }
     _tt_show();
 }
-/* move_to(cat, 300, 100, 5);        slide there at speed 5, and WAIT until it gets there
- *                                   (speed 1 = slow, 5 = normal, 20 = fast, 0 = instant) */
-TT void move_to(Thing th, double x, double y, double speed) {
-    _TT_TH(th);
-    glide(th, x, y, speed);
-    int lm = _tt.loop_mode; _tt.loop_mode = 0;
-    while (_tt.t[th].moving) _tt_wait_tick();
-    _tt.loop_mode = lm;
-}
-/* move_by(cat, 100, 0, 5);          slide 100 to the right (and wait) */
-TT void move_by(Thing th, double dx, double dy, double speed) { _TT_TH(th); move_to(th, _tt.t[th].x + dx, _tt.t[th].y + dy, speed); }
+TT void _tt_move_to4(Thing th, double x, double y, double speed) { _tt_glide(th, x, y, speed); _tt_wait_still(th); }
+TT void _tt_move_to3(double x, double y, double speed) { _tt_move_to4(_tt_it(), x, y, speed); }
+TT void _tt_move_to2(double x, double y) { _tt_move_to4(_tt_it(), x, y, 5); }
+#define move_to(...) _TT_PICK4(__VA_ARGS__, _tt_move_to4, _tt_move_to3, _tt_move_to2, 0)(__VA_ARGS__)
 
-/* rotate(cat, 45);                  turn it 45 degrees clockwise right away (-45 = the other way)
- * rotate_to(cat, 90);               set the angle: 0 = normal, 90 = on its side ...
- * spin(cat, 360, 5);                turn 360 degrees at speed 5, and WAIT until it's done
- * start_spin(cat, 360, 5);          same, but your code keeps going */
-TT void rotate(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading -= (float)deg; _tt_show(); }
-TT void rotate_to(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading = -(float)deg; _tt.t[th].spinning = 0; _tt_show(); }
-TT void start_spin(Thing th, double deg, double speed) {
+TT void _tt_move_by4(Thing th, double dx, double dy, double speed) { _TT_TH(th); _tt_move_to4(th, _tt.t[th].x + dx, _tt.t[th].y + dy, speed); }
+TT void _tt_move_by3(double dx, double dy, double speed) { _tt_move_by4(_tt_it(), dx, dy, speed); }
+TT void _tt_move_by2(double dx, double dy) { _tt_move_by4(_tt_it(), dx, dy, 5); }
+#define move_by(...) _TT_PICK4(__VA_ARGS__, _tt_move_by4, _tt_move_by3, _tt_move_by2, 0)(__VA_ARGS__)
+
+TT void _tt_glide3(double x, double y, double speed) { _tt_glide(_tt_it(), x, y, speed); }
+#define glide(...) _TT_PICK4(__VA_ARGS__, _tt_glide, _tt_glide3, 0, 0)(__VA_ARGS__)
+
+TT void _tt_place3(Thing th, double x, double y) { _TT_TH(th); _tt.t[th].x = (float)x; _tt.t[th].y = (float)y; _tt.t[th].moving = 0; _tt_show(); }
+TT void _tt_place2(double x, double y) { _tt_place3(_tt_it(), x, y); }
+#define place(...) _TT_PICK3(__VA_ARGS__, _tt_place3, _tt_place2, 0)(__VA_ARGS__)
+
+/* ---- turning ----
+ * lt(90);       turn left 90 (and wait)          lt(90, 10);   faster
+ * rt(90);       turn right 90 (and wait)         rt(90, 10);
+ * spin(360);    spin all the way around           spin(360, 10);
+ * rotate(45);   turn 45 right away (no animation)
+ * rotate_to(0); set the angle: 0 = normal, 90 = turned right on its side ...
+ * start_spin(360, 5);   start spinning, DON'T wait */
+TT void _tt_start_spin_th(Thing th, double cw, double speed) {      /* cw = degrees clockwise */
     _TT_TH(th);
-    _tt.t[th].spin_left = -(float)deg; _tt.t[th].spin_speed = (float)speed; _tt.t[th].spinning = 1;
-    if (speed <= 0) { _tt.t[th].heading -= (float)deg; _tt.t[th].spinning = 0; }
+    _tt.t[th].spin_left = -(float)cw; _tt.t[th].spin_speed = (float)speed; _tt.t[th].spinning = 1;
+    if (speed <= 0) { _tt.t[th].heading -= (float)cw; _tt.t[th].spinning = 0; }
     _tt_show();
 }
-TT void spin(Thing th, double deg, double speed) {
-    _TT_TH(th);
-    start_spin(th, deg, speed);
-    int lm = _tt.loop_mode; _tt.loop_mode = 0;
-    while (_tt.t[th].spinning) _tt_wait_tick();
-    _tt.loop_mode = lm;
-}
+TT void _tt_turn_wait(Thing th, double cw, double speed) { _tt_start_spin_th(th, cw, speed); _tt_wait_still(th); }
 
-/* resize(cat, 2);   twice as big       hide_thing(cat);  show_thing(cat);
- * x_of(cat), y_of(cat)   where it is   is_moving(cat)    still sliding or spinning? */
-TT void resize(Thing th, double scale) { _TT_TH(th); _tt.t[th].size = (float)scale; _tt_show(); }
+TT void _tt_lt1(double deg) { _tt_turn_wait(_tt_it(), -deg, 6); }
+TT void _tt_lt2(double deg, double speed) { _tt_turn_wait(_tt_it(), -deg, speed); }
+TT void _tt_rt1(double deg) { _tt_turn_wait(_tt_it(), deg, 6); }
+TT void _tt_rt2(double deg, double speed) { _tt_turn_wait(_tt_it(), deg, speed); }
+#define lt(...) _TT_PICK2(__VA_ARGS__, _tt_lt2, _tt_lt1, 0)(__VA_ARGS__)
+#define rt(...) _TT_PICK2(__VA_ARGS__, _tt_rt2, _tt_rt1, 0)(__VA_ARGS__)
+
+TT void _tt_spin3(Thing th, double deg, double speed) { _tt_turn_wait(th, deg, speed); }
+TT void _tt_spin2(double deg, double speed) { _tt_turn_wait(_tt_it(), deg, speed); }
+TT void _tt_spin1(double deg) { _tt_turn_wait(_tt_it(), deg, 6); }
+#define spin(...) _TT_PICK3(__VA_ARGS__, _tt_spin3, _tt_spin2, _tt_spin1, 0)(__VA_ARGS__)
+
+TT void _tt_start_spin2(double deg, double speed) { _tt_start_spin_th(_tt_it(), deg, speed); }
+#define start_spin(...) _TT_PICK3(__VA_ARGS__, _tt_start_spin_th, _tt_start_spin2, 0, 0)(__VA_ARGS__)
+
+TT void _tt_rotate2(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading -= (float)deg; _tt_show(); }
+TT void _tt_rotate1(double deg) { _tt_rotate2(_tt_it(), deg); }
+#define rotate(...) _TT_PICK2(__VA_ARGS__, _tt_rotate2, _tt_rotate1, 0)(__VA_ARGS__)
+TT void _tt_rotate_to2(Thing th, double deg) { _TT_TH(th); _tt.t[th].heading = -(float)deg; _tt.t[th].spinning = 0; _tt_show(); }
+TT void _tt_rotate_to1(double deg) { _tt_rotate_to2(_tt_it(), deg); }
+#define rotate_to(...) _TT_PICK2(__VA_ARGS__, _tt_rotate_to2, _tt_rotate_to1, 0)(__VA_ARGS__)
+
+/* ---- other ----
+ * resize(2);   twice as big       hide_thing(cat);  show_thing(cat);  x_of(cat);  y_of(cat)
+ * drag_thing(cat);   drag it with the mouse      things_touch(a, b)   overlapping? */
+TT void _tt_resize2(Thing th, double scale) { _TT_TH(th); _tt.t[th].size = (float)scale; _tt_show(); }
+TT void _tt_resize1(double scale) { _tt_resize2(_tt_it(), scale); }
+#define resize(...) _TT_PICK2(__VA_ARGS__, _tt_resize2, _tt_resize1, 0)(__VA_ARGS__)
+
 TT void hide_thing(Thing th) { _TT_TH(th); _tt.t[th].look = _TT_NONE; _tt_show(); }
 TT void show_thing(Thing th) { _TT_TH(th); _tt.t[th].look = _TT_PIC; _tt_show(); }
 TT float x_of(Thing th) { _TT_TH(th) 0; return _tt.t[th].x; }
 TT float y_of(Thing th) { _TT_TH(th) 0; return _tt.t[th].y; }
 TT int is_moving(Thing th) { _TT_TH(th) 0; return _tt.t[th].moving || _tt.t[th].spinning; }
-/* if (things_touch(cat, coin)) ...      two things overlapping */
 TT int things_touch(Thing a, Thing b) { int keep = _tt.cur; _tt.cur = a; int r = touching(b); _tt.cur = keep; return r; }
-/* drag_thing(cat);                      drag it with the mouse */
 TT void drag_thing(Thing th) { _TT_TH(th); _tt.t[th].drag = 1; }
 
 /* ============================================================ */
@@ -1996,6 +2073,8 @@ TT void new_screen(void) {
     for (int i = 0; i < _tt.nbtn; i++) _tt.btn[i].used = 0;
     _tt.tb_on = 0; _tt.focus = 0; _tt.oninput_fn = NULL; _tt.msg[0] = 0;
     for (int i = 0; i < _tt.nt; i++) _tt.t[i].look = _TT_NONE;
+    for (int i = 0; i < _tt.nt; i++)
+        if (_tt.t[i].is_thing) { _tt.t[i].dead = 1; _tt.t[i].look = _TT_NONE; _tt.t[i].moving = _tt.t[i].spinning = 0; }
     _tt.dragging = -1;
     _tt.ntxt = 0;
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);

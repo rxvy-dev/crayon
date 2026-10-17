@@ -1,6 +1,8 @@
-/* move.c - slide and spin pictures and text
+/* move.c - move and turn pictures and text
  *
  *     gcc move.c -o move && ./move
+ *
+ * Everything inside the { } moves that picture (or text).
  */
 #include "crayon.h"
 
@@ -8,18 +10,20 @@ int main(void) {
     window(800, 400);
     background("sky");
 
-    Thing turtle = add_image("turtle.png", -300, 0);     /* a picture you can move */
+    image("turtle.png", -300, 0) {
+        move_to(300, 0);        /* slide to (300, 0) */
+        lt(90);                 /* turn left 90 */
+        move_by(0, 100, 8);     /* go up 100, at speed 8 */
+        rt(180);                /* turn right 180 */
+        spin(360, 12);          /* spin all the way around, fast */
+    }
+
     textsize(40);
     bold(1);
-    Thing title = add_text("{rainbow}Hello! 🐢", 0, 150);  /* text you can move */
+    label("{rainbow}Hello! 🐢", 0, -200) {
+        move_to(0, -100);       /* slide up */
+        rt(20);                 /* tilt it */
+    }
 
-    move_to(turtle, 300, 0, 5);       /* slide to (300, 0) at speed 5, wait until it's there */
-    spin(turtle, 180, 6);             /* turn around, wait */
-
-    glide(turtle, -300, 0, 4);        /* slide back... (doesn't wait) */
-    start_spin(title, 360, 3);        /* ...while the title spins at the same time */
-    wait_for(3);
-
-    move_to(title, 0, -100, 8);       /* drop the title down */
-    change_text(title, "{green}Done! ✅");
+    image("star.png", -300, 150);   /* no { } = just show the picture */
 }
