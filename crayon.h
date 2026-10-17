@@ -705,8 +705,15 @@ TT void _tt_refresh(void) {
         _tt_rrect(_tt.buf, tx, ty, tw, _TT_TBH, _TT_TBH / 2, _tt.focus ? BLUE : _tt.box_line, 0);
         if (_tt.focus) _tt_rrect(_tt.buf, tx + 1, ty + 1, tw - 2, _TT_TBH - 2, _TT_TBH / 2 - 1, BLUE, 0);
         int base = ty + (_TT_TBH + f->asc - f->desc) / 2;
-        if (!_tt.focus && !_tt.input[0]) {
-            _tt_str(_tt.buf, f, tx + 22, base, _tt.box_hint, _tt.msg[0] ? _tt.msg : _tt.hint);
+        if (!_tt.input[0]) {
+            _tt_str(_tt.buf, f, tx + 22, base, _tt.box_hint, _tt.msg[0] && !_tt.focus ? _tt.msg : _tt.hint);
+            if (_tt.focus) {
+                struct timespec now; clock_gettime(CLOCK_MONOTONIC, &now);
+                if (now.tv_nsec < 550000000L) {
+                    XSetForeground(d, _tt.gc, _tt.box_text);
+                    XDrawLine(d, _tt.buf, _tt.gc, tx + 21, ty + 11, tx + 21, ty + _TT_TBH - 11);
+                }
+            }
         } else {
             const char *s = _tt.input;
             while (*s && _tt_tw(f, s) > tw - 50) s++;
@@ -1631,8 +1638,8 @@ TT int same(const char *a, const char *b) { return _tt_ieq(a, b); }
 
 /* const char *name = userinput("What's your name?");
  *   shows a text box at the bottom, WAITS until you type and press Enter, gives back what you typed
- * userinput_at("Search...", 0, 50);   same, but the box is at (x, y)
- * numberinput("How old are you?")     same, but gives back a number */
+ * userinput("Search...", 0, 50);      same, but the box is at (x, y) (its middle)
+ * numberinput("How old are you?")     same, but gives back a number (also works with x, y) */
 TT const char *userinput_at(const char *question, double x, double y) {
     _tt_check();
     int lm = _tt.loop_mode; _tt.loop_mode = 0;
@@ -1654,8 +1661,11 @@ TT const char *userinput_at(const char *question, double x, double y) {
     _tt_refresh();
     return str("%s", _tt.entry);
 }
-TT const char *userinput(const char *question) { return userinput_at(question, 0, -_tt.H / 2.0f + _TT_TBH / 2.0f + 14); }
-TT float numberinput(const char *question) { return (float)atof(userinput(question)); }
+TT const char *_tt_userinput1(const char *question) { return userinput_at(question, 0, -_tt.H / 2.0f + _TT_TBH / 2.0f + 14); }
+TT float _tt_numberinput1(const char *question) { return (float)atof(_tt_userinput1(question)); }
+TT float _tt_numberinput3(const char *question, double x, double y) { return (float)atof(userinput_at(question, x, y)); }
+#define userinput(...)   _TT_PICK4(__VA_ARGS__, 0, userinput_at, 0, _tt_userinput1)(__VA_ARGS__)
+#define numberinput(...) _TT_PICK4(__VA_ARGS__, 0, _tt_numberinput3, 0, _tt_numberinput1)(__VA_ARGS__)
 
 /* pick("Yes", "No")                   shows buttons at the bottom, WAITS for a click,
  *                                     gives back 1 for the first button, 2 for the second ...

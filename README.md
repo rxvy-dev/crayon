@@ -97,6 +97,7 @@ text_center("Title", 0, 200);          // words centered on (0, 200)
 button("Play", 0, -100, play);         // button centered on (0, -100)
 image("logo.png", 0, 150);             // picture centered on (0, 150)
 inputbox("Type...", 0, -200, 500, fn); // box centered on (0, -200), 500 wide
+userinput("?:", 0, 50);                // ask, with the box centered on (0, 50)
 ```
 
 ## Buttons anywhere
@@ -202,8 +203,10 @@ bold(1);
 The program simply waits for the answer — no callbacks needed.
 
 ```c
-const char *name = userinput("What's your name?");
+const char *name = userinput("What's your name?");      // box at the bottom
 text("{rainbow}Hi %s!", 0, 100, name);
+
+const char *q = userinput("Search...", 0, 50);          // box at x 0, y 50
 
 int choice = pick("Yes", "No");        // 1 = Yes, 2 = No
 ```
@@ -377,7 +380,7 @@ clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
 image("x.png", x, y)  image("x.png", x, y, scale)
 text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
-userinput("question")  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
+userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
