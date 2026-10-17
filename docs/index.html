@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="crayon.h - graphics in C, stupid easy. One header file for drawing, games and apps on Linux (Wayland and X11).">
+<title>crayon.h</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=JetBrains+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a terminal session that scrolls - prompt-style nav, a hero that IS a program and its window,
+   then feature "commands" each pairing code with the real screenshot it produces. Single dark look on purpose. */
+:root {
+  --bg: #0a0809;          /* tty black, slightly warm */
+  --panel: #141012;
+  --panel-2: #1c1619;
+  --line: #2e2428;
+  --fg: #ece4e6;
+  --muted: #9c8d92;
+  --red: #e5383b;         /* the one accent */
+  --red-dim: #8f1d20;
+  --str: #f2a65a;         /* code: strings */
+  --num: #f4d35e;         /* code: numbers */
+  --fn: #ff8a8c;          /* code: functions */
+  --cm: #6f6166;          /* code: comments */
+  --c1: #2e9e5b; --c2: #e67e22; --c3: #8e44ad; --c4: #3498db; --c5: #e74c3c; --c6: #16a085;  /* crayon colors, logo only */
+  --display: "Bricolage Grotesque", "Arial Black", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+html, body { overflow-x: clip; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; transition: none !important; } }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.6;
+  margin: 0;
+  background-image: radial-gradient(circle at 1px 1px, rgba(229, 56, 59, 0.08) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; border-radius: 4px; }
+
+/* ---------- nav ---------- */
+nav.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: rgba(10, 8, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+nav.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 12px; flex-wrap: wrap; }
+.prompt { font-family: var(--mono); font-size: 14px; color: var(--muted); white-space: nowrap; }
+.prompt b { color: var(--red); font-weight: 700; }
+nav.top ul { list-style: none; display: flex; gap: 20px; margin: 0 0 0 auto; padding: 0; flex-wrap: wrap; }
+nav.top a { font-family: var(--mono); font-size: 14px; text-decoration: none; color: var(--muted); }
+nav.top a:hover { color: var(--fg); }
+nav.top a.gh { color: var(--fg); border: 1px solid var(--red-dim); padding: 4px 12px; border-radius: 6px; }
+nav.top a.gh:hover { border-color: var(--red); background: rgba(229, 56, 59, 0.1); }
+
+/* ---------- hero ---------- */
+.hero { padding-block: 72px 56px; display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; }
+.hero > * { min-width: 0; }
+.wordmark {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(64px, 11vw, 132px); line-height: 0.9; letter-spacing: -0.03em;
+  margin: 0;
+}
+.wordmark span:nth-child(6n+1) { color: var(--c1); }
+.wordmark span:nth-child(6n+2) { color: var(--c2); }
+.wordmark span:nth-child(6n+3) { color: var(--c3); }
+.wordmark span:nth-child(6n+4) { color: var(--c4); }
+.wordmark span:nth-child(6n+5) { color: var(--c5); }
+.wordmark span:nth-child(6n+6) { color: var(--c6); }
+.wordmark .dot { color: var(--fg) !important; }
+.tagline { font-family: var(--display); font-weight: 500; font-size: clamp(24px, 3.2vw, 34px); line-height: 1.2; margin: 22px 0 14px; text-wrap: balance; }
+.tagline em { font-style: normal; color: var(--red); }
+.lede { color: var(--muted); max-width: 46ch; margin: 0 0 26px; }
+.platforms { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 28px; }
+.chip { font-family: var(--mono); font-size: 13px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); background: var(--panel); }
+.chip::before { content: "● "; color: var(--red); }
+.cta { display: flex; gap: 14px; flex-wrap: wrap; align-items: stretch; }
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-family: var(--mono); font-weight: 600; font-size: 15px;
+  padding: 12px 20px; border-radius: 8px; text-decoration: none;
+  background: var(--red); color: #fff; border: 1px solid var(--red);
+}
+.btn:hover { background: #ff4a4d; }
+.btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+.btn.ghost:hover { border-color: var(--muted); background: var(--panel); }
+
+/* terminal window */
+.term { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 30px 60px -30px rgba(229, 56, 59, 0.35); }
+.term-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
+.term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #3a2e32; display: block; }
+.term-bar i:first-child { background: var(--red); }
+.term-bar span { margin-left: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+pre {
+  margin: 0; padding: 18px 20px; overflow-x: auto;
+  font-family: var(--mono); font-size: 14px; line-height: 1.65; color: var(--fg);
+  tab-size: 4;
+}
+.k { color: #c792ea; } .s { color: var(--str); } .n { color: var(--num); } .f { color: var(--fn); } .c { color: var(--cm); font-style: italic; } .p { color: var(--red); }
+.hero-shot { display: grid; gap: 14px; }
+.shot { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); background: #000; }
+.run { font-family: var(--mono); font-size: 13px; color: var(--muted); padding: 12px 20px; border-top: 1px solid var(--line); }
+.run b { color: var(--red); }
+
+/* ---------- strip ---------- */
+.strip { border-block: 1px solid var(--line); background: var(--panel); }
+.strip .wrap { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; padding-block: 0; }
+.stat { padding: 22px 18px; border-left: 1px solid var(--line); }
+.stat:first-child { border-left: 0; }
+.stat strong { display: block; font-family: var(--display); font-weight: 800; font-size: 32px; line-height: 1.1; }
+.stat span { font-size: 14px; color: var(--muted); }
+
+/* ---------- sections ---------- */
+section { padding-block: 84px 20px; }
+.eyebrow { font-family: var(--mono); font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--red); margin: 0 0 10px; }
+h2 { font-family: var(--display); font-weight: 800; font-size: clamp(34px, 5vw, 52px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 14px; text-wrap: balance; }
+.intro { color: var(--muted); max-width: 60ch; margin: 0 0 40px; }
+
+.feature { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: center; padding-block: 30px; border-top: 1px dashed var(--line); }
+.feature > * { min-width: 0; }
+.feature:nth-of-type(even) .feature-code { order: 2; }
+.feature h3 { font-family: var(--display); font-weight: 800; font-size: 28px; margin: 0 0 6px; }
+.feature h3 .cmd { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--red); margin-left: 8px; vertical-align: middle; }
+.feature p { color: var(--muted); margin: 0 0 16px; max-width: 52ch; }
+.feature .term pre { font-size: 13.5px; }
+
+/* ---------- video ---------- */
+.video-row { display: grid; grid-template-columns: 340px 1fr; gap: 48px; align-items: center; }
+.video-row > * { min-width: 0; }
+video { width: 100%; max-width: 340px; aspect-ratio: 9 / 16; border-radius: 16px; border: 1px solid var(--line); background: #000; display: block; }
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.list li { font-family: var(--mono); font-size: 15px; padding-left: 22px; position: relative; }
+.list li::before { content: ">"; position: absolute; left: 0; color: var(--red); font-weight: 700; }
+
+/* ---------- install ---------- */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: step; }
+.step { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; }
+.step h3 { font-family: var(--display); font-weight: 800; font-size: 20px; margin: 0 0 6px; }
+.step h3::before { counter-increment: step; content: counter(step); display: inline-grid; place-items: center; width: 28px; height: 28px; margin-right: 10px; border-radius: 6px; background: var(--red); color: #fff; font-family: var(--mono); font-size: 14px; }
+.step p { color: var(--muted); font-size: 15px; margin: 0 0 12px; }
+.copy { display: flex; align-items: stretch; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.copy code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; padding: 10px 12px; overflow-x: auto; white-space: nowrap; color: var(--fg); }
+.copy button { font-family: var(--mono); font-size: 12px; background: var(--panel-2); color: var(--fg); border: 0; border-left: 1px solid var(--line); padding: 0 12px; cursor: pointer; }
+.copy button:hover { color: var(--red); }
+.note { font-size: 14px; color: var(--muted); margin-top: 18px; }
+.note code, p code, li code { font-family: var(--mono); font-size: 0.9em; color: var(--fn); }
+
+/* ---------- cheat sheet ---------- */
+.sheet-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--red); background: var(--panel-2); }
+td { font-size: 15px; }
+td:first-child { font-family: var(--mono); font-size: 14px; color: var(--fn); white-space: nowrap; }
+td:nth-child(2) { color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+
+/* ---------- footer ---------- */
+footer { margin-top: 90px; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; gap: 20px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding-block: 28px calc(28px + env(safe-area-inset-bottom, 0px)); }
+footer p { margin: 0; font-family: var(--mono); font-size: 14px; color: var(--muted); }
+footer a { color: var(--fg); }
+
+/* ---------- small screens ---------- */
+@media (max-width: 880px) {
+  .hero, .feature, .video-row { grid-template-columns: 1fr; }
+  .feature:nth-of-type(even) .feature-code { order: 0; }
+  .steps { grid-template-columns: 1fr; }
+  .strip .wrap { grid-template-columns: 1fr 1fr; }
+  .stat:nth-child(3) { border-left: 0; }
+  .stat { border-top: 1px solid var(--line); }
+  .stat:nth-child(-n+2) { border-top: 0; }
+  video { margin: 0 auto; }
+  .hero { padding-block: 44px 40px; }
+}
+@media (max-width: 520px) {
+  nav.top ul { margin-left: 0; gap: 14px; }
+  pre { font-size: 12.5px; padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<nav class="top" aria-label="Main">
+  <div class="wrap">
+    <span class="prompt"><b>~/crayon</b> $ cat crayon.h</span>
+    <ul>
+      <li><a href="#features">features</a></li>
+      <li><a href="#demo">demo</a></li>
+      <li><a href="#install">install</a></li>
+      <li><a href="#cheatsheet">cheat sheet</a></li>
+      <li><a class="gh" href="https://github.com/rxvy-dev/crayon">github ↗</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="wrap hero">
+  <div>
+    <h1 class="wordmark" aria-label="crayon.h"><span>c</span><span>r</span><span>a</span><span>y</span><span>o</span><span>n</span><span class="dot">.</span><span>h</span></h1>
+    <p class="tagline">Graphics in C, <em>stupid easy.</em></p>
+    <p class="lede">Draw, make games and build little apps in C with one header file. No setup, no libraries to link, no 200 lines of boilerplate before your first pixel.</p>
+    <div class="platforms" aria-label="Works on">
+      <span class="chip">Linux</span><span class="chip">Wayland</span><span class="chip">X11</span>
+    </div>
+    <div class="cta">
+      <a class="btn" href="https://github.com/rxvy-dev/crayon">Get it on GitHub ↗</a>
+      <a class="btn ghost" href="#install">How to install</a>
+    </div>
+  </div>
+  <div class="hero-shot">
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>square.c</span></div>
+<pre><span class="p">#include</span> <span class="s">"crayon.h"</span>
+
+<span class="k">int</span> <span class="f">main</span>(<span class="k">void</span>) {
+    <span class="f">window</span>(<span class="n">600</span>, <span class="n">400</span>);
+    <span class="f">arrow</span>();
+
+    <span class="f">repeat</span>(<span class="n">4</span>) {
+        <span class="f">forward</span>(<span class="n">100</span>);
+        <span class="f">right</span>(<span class="n">90</span>);
+    }
+}</pre>
+      <div class="run"><b>$</b> gcc square.c -o square &amp;&amp; ./square</div>
+    </div>
+    <img class="shot" src="img/square.png" width="600" height="400" alt="A window with a black square drawn by the arrow">
+  </div>
+</header>
+
+<div class="strip" role="list">
+  <div class="wrap">
+    <div class="stat" role="listitem"><strong>1 file</strong><span>just #include it</span></div>
+    <div class="stat" role="listitem"><strong>0 flags</strong><span>plain gcc, no -lX11</span></div>
+    <div class="stat" role="listitem"><strong>1000+</strong><span>moving pictures at 100 fps</span></div>
+    <div class="stat" role="listitem"><strong>MIT</strong><span>free, do whatever</span></div>
+  </div>
+</div>
+
+<main>
+<section id="features" class="wrap">
+  <p class="eyebrow">// what it does</p>
+  <h2>Every feature is about one line.</h2>
+  <p class="intro">Each example below is real code, and each picture is that code running. The middle of the window is (0, 0), x goes right and y goes up.</p>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>Colorful text <span class="cmd">text()</span></h3>
+      <p>Put colors right inside the words with <code>{red}</code>, or make every letter a different color with <code>{rainbow}</code>. Emoji work too.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>text.c</span></div>
+<pre><span class="f">textsize</span>(<span class="n">70</span>);
+<span class="f">text_center</span>(<span class="s">"{rainbow}Hello World!"</span>, <span class="n">0</span>, <span class="n">120</span>);
+<span class="f">text_center</span>(<span class="s">"{red}red {blue}blue {green}green"</span>, <span class="n">0</span>, <span class="n">10</span>);
+<span class="f">text_center</span>(<span class="s">"{white}emoji too 🔥🐢🚀"</span>, <span class="n">0</span>, <span class="n">-110</span>);</pre></div>
+    </div>
+    <img class="shot" src="img/text.png" width="800" height="560" alt="Rainbow Hello World, colored words and emoji on black" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>Pictures that move <span class="cmd">image() { }</span></h3>
+      <p>Put a picture on screen, then everything inside the braces moves that picture. Slide, turn left and right, spin.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>move.c</span></div>
+<pre><span class="f">image</span>(<span class="s">"turtle.png"</span>, <span class="n">-280</span>, <span class="n">-100</span>, <span class="n">2</span>) {
+    <span class="f">move_to</span>(<span class="n">280</span>, <span class="n">-100</span>);   <span class="c">// slide over</span>
+    <span class="f">lt</span>(<span class="n">90</span>);                <span class="c">// turn left</span>
+    <span class="f">move_to</span>(<span class="n">280</span>, <span class="n">150</span>);
+    <span class="f">spin</span>(<span class="n">360</span>, <span class="n">10</span>);         <span class="c">// spin fast</span>
+}</pre></div>
+    </div>
+    <img class="shot" src="img/move.png" width="800" height="560" alt="A turtle picture sliding across a sky blue window" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>A whole game, no loops <span class="cmd">on_touch()</span></h3>
+      <p>Make a player, scatter some coins, and say what happens when you touch one. Arrow keys and WASD already work. Score, lives and a game over screen are built in.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>coins.c</span></div>
+<pre><span class="k">void</span> <span class="f">got_coin</span>(<span class="k">void</span>) {
+    <span class="f">add_score</span>(<span class="n">1</span>);
+    <span class="f">respawn</span>();
+}
+
+<span class="k">int</span> <span class="f">main</span>(<span class="k">void</span>) {
+    <span class="f">window</span>(<span class="n">800</span>, <span class="n">560</span>);
+    <span class="f">player</span>(<span class="s">"turtle.png"</span>);
+    <span class="f">spawn</span>(<span class="s">"coin.png"</span>, <span class="n">5</span>);
+    <span class="f">on_touch</span>(<span class="s">"coin.png"</span>, got_coin);
+    <span class="f">chase</span>(<span class="s">"star.png"</span>, <span class="n">1</span>);
+    <span class="f">show_score</span>();
+    <span class="f">lives</span>(<span class="n">3</span>);
+}</pre></div>
+    </div>
+    <img class="shot" src="img/coins.png" width="800" height="560" alt="Coin game: a turtle, coins, two stars, a score and red hearts" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>Ask, then answer <span class="cmd">userinput()</span></h3>
+      <p>The program simply waits for the answer. Check it with <code>strstr</code> and show whatever you want. That's a chatbot in a few lines.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>ask.c</span></div>
+<pre><span class="k">while</span> (<span class="n">1</span>) {
+    <span class="k">const char</span> *input = <span class="f">userinput</span>(<span class="s">"?:"</span>);
+    <span class="f">page</span>();
+    <span class="k">if</span> (<span class="f">strstr</span>(input, <span class="s">"linux"</span>))
+        <span class="f">text_center</span>(<span class="s">"Linux is a kernel made by {yellow}Linus Torvalds"</span>, <span class="n">0</span>, <span class="n">-100</span>);
+    <span class="k">else</span>
+        <span class="f">text_center</span>(<span class="s">"{gray}I don't know that yet"</span>, <span class="n">0</span>, <span class="n">-100</span>);
+}</pre></div>
+    </div>
+    <img class="shot" src="img/ask.png" width="1000" height="500" alt="A turtle bot answering a question about Linux" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>Buttons anywhere <span class="cmd">button()</span></h3>
+      <p>Words, x, y, and the function to run. Turn on <code>grid()</code> and <code>show_coords()</code> while you build and you'll always know where things go.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>place.c</span></div>
+<pre><span class="f">grid</span>();
+<span class="f">show_coords</span>();
+<span class="f">button_color</span>(<span class="s">"blue"</span>, <span class="s">"white"</span>);
+<span class="f">button</span>(<span class="s">"Top left"</span>,  <span class="n">-320</span>,  <span class="n">190</span>, hi);
+<span class="f">button</span>(<span class="s">"Middle"</span>,       <span class="n">0</span>,    <span class="n">0</span>, hi);
+<span class="f">button</span>(<span class="s">"Bottom right"</span>, <span class="n">320</span>, <span class="n">-190</span>, hi);</pre></div>
+    </div>
+    <img class="shot" src="img/place.png" width="800" height="500" alt="Buttons in each corner over a numbered coordinate grid" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>GIFs and videos <span class="cmd">image()</span></h3>
+      <p>Same function for everything: png, jpg, bmp, animated gif, webp, even mp4 and webm. Add <code>sound("music.mp3")</code> for audio.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>gif.c</span></div>
+<pre><span class="f">image</span>(<span class="s">"btw.gif"</span>, <span class="n">0</span>, <span class="n">0</span>, <span class="n">3.5</span>);     <span class="c">// it animates</span>
+<span class="f">image</span>(<span class="s">"clip.mp4"</span>, <span class="n">0</span>, <span class="n">-200</span>);      <span class="c">// it plays</span>
+<span class="f">sound</span>(<span class="s">"music.mp3"</span>);</pre></div>
+    </div>
+    <img class="shot" src="img/gif.png" width="800" height="560" alt="An animated i use arch btw GIF playing in a window" loading="lazy">
+  </article>
+
+  <article class="feature">
+    <div class="feature-code">
+      <h3>Drawing <span class="cmd">forward()</span></h3>
+      <p>Classic turtle drawing plus boxes, circles, fills and pictures. Use <code>speed(0)</code> to draw instantly.</p>
+      <div class="term"><div class="term-bar"><i></i><i></i><i></i><span>draw.c</span></div>
+<pre><span class="f">color</span>(<span class="s">"orange"</span>);
+<span class="f">begin_fill</span>();
+<span class="f">repeat</span>(<span class="n">3</span>) { <span class="f">forward</span>(<span class="n">90</span>); <span class="f">left</span>(<span class="n">120</span>); }
+<span class="f">end_fill</span>();
+
+<span class="f">color</span>(<span class="s">"gold"</span>);
+<span class="f">round_box</span>(<span class="n">-80</span>, <span class="n">-130</span>, <span class="n">140</span>, <span class="n">70</span>, <span class="n">20</span>);</pre></div>
+    </div>
+    <img class="shot" src="img/draw.png" width="800" height="500" alt="Lines, a square, a filled triangle, a circle, boxes and a picture" loading="lazy">
+  </article>
+</section>
+
+<section id="demo" class="wrap">
+  <div class="video-row">
+    <video src="demo.mp4" poster="img/demo-poster.jpg" controls playsinline preload="metadata" aria-label="crayon.h demo video"></video>
+    <div>
+      <p class="eyebrow">// 49 seconds</p>
+      <h2>See it run.</h2>
+      <p class="intro">Every clip is a crayon program running live, recorded straight off the screen.</p>
+      <ul class="list">
+        <li>shapes and spiral art</li>
+        <li>rainbow text and emoji</li>
+        <li>pictures that slide and spin</li>
+        <li>a coin game</li>
+        <li>text input and buttons</li>
+        <li>gifs and mp4 in the window</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="wrap">
+  <p class="eyebrow">// install</p>
+  <h2>Three steps. No package manager.</h2>
+  <p class="intro">crayon.h loads X11 and the rest by itself when your program starts, so there is nothing to link.</p>
+  <div class="steps">
+    <div class="step">
+      <h3>Download</h3>
+      <p>Grab the one file into your project folder.</p>
+      <div class="copy"><code id="c1">curl -O https://raw.githubusercontent.com/rxvy-dev/crayon/main/crayon.h</code><button type="button" data-copy="c1">copy</button></div>
+    </div>
+    <div class="step">
+      <h3>Include</h3>
+      <p>Put this at the top of your <code>.c</code> file.</p>
+      <div class="copy"><code id="c2">#include "crayon.h"</code><button type="button" data-copy="c2">copy</button></div>
+    </div>
+    <div class="step">
+      <h3>Build &amp; run</h3>
+      <p>Plain gcc. That's the whole build.</p>
+      <div class="copy"><code id="c3">gcc main.c -o main &amp;&amp; ./main</code><button type="button" data-copy="c3">copy</button></div>
+    </div>
+  </div>
+  <p class="note">Want <code>#include &lt;crayon.h&gt;</code> from anywhere? Run <code>sudo cp crayon.h /usr/local/include/</code> once. Videos, webp and <code>sound()</code> also need <code>ffmpeg</code>. Emoji need an emoji font like <code>noto-fonts-emoji</code>.</p>
+</section>
+
+<section id="cheatsheet" class="wrap">
+  <p class="eyebrow">// cheat sheet</p>
+  <h2>The whole library on one screen.</h2>
+  <p class="intro">Colors can be names like <code>"red"</code> or hex like <code>"#ff8800"</code>. Everything with x, y uses the middle of the window as (0, 0).</p>
+  <div class="sheet-wrap">
+    <table>
+      <thead><tr><th>Function</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>window(w, h)  title("..")</td><td>make the window, name it</td></tr>
+        <tr><td>background("sky")  clear()  new_screen()</td><td>color the window, erase drawings, wipe everything for a new page</td></tr>
+        <tr><td>forward(n)  left(deg)  right(deg)  go_to(x, y)</td><td>move and turn the pen</td></tr>
+        <tr><td>color("red")  thickness(n)  circle(r)  box(x, y, w, h)</td><td>draw in color, shapes and boxes</td></tr>
+        <tr><td>text("..", x, y)  text_center("..", x, y)</td><td>words, with {red} and {rainbow} color tags</td></tr>
+        <tr><td>textsize(n)  bold(1)</td><td>size and weight of the next text</td></tr>
+        <tr><td>image("x.png", x, y) { .. }</td><td>a picture, gif or video; code in { } moves it</td></tr>
+        <tr><td>move_to(x, y)  move_by(dx, dy)  lt(deg)  rt(deg)  spin(deg)</td><td>slide and turn a picture or label</td></tr>
+        <tr><td>button("..", x, y, fn)  link("..", x, y, fn)</td><td>clickable buttons and words</td></tr>
+        <tr><td>userinput("..")  pick("Yes", "No")</td><td>wait for typed text or a click</td></tr>
+        <tr><td>inputbox("..", x, y, w, fn)  entry()  typed("..")</td><td>a text box that runs fn on Enter</td></tr>
+        <tr><td>player("..")  spawn("..", n)  on_touch("..", fn)</td><td>games with no loops</td></tr>
+        <tr><td>chase("..", s)  add_score(n)  lives(n)  you_win("..")</td><td>enemies, score, hearts, end screens</td></tr>
+        <tr><td>forever { key(UP) forward(4); }</td><td>your own game loop, 60 times a second</td></tr>
+        <tr><td>sound("x.mp3")  wait_for(sec)  rnd(a, b)</td><td>play audio, pause, random numbers</td></tr>
+        <tr><td>run("cmd %s", word)  run_ok()</td><td>run a terminal command, words safely quoted</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>crayon.h · MIT license · made by <a href="https://github.com/rxvy-dev">rxvy</a> · @rxvydev</p>
+    <p><a href="https://github.com/rxvy-dev/crayon">github.com/rxvy-dev/crayon ↗</a></p>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll("[data-copy]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var el = document.getElementById(btn.getAttribute("data-copy"));
+    var text = el.textContent;
+    function done(label) { btn.textContent = label; setTimeout(function () { btn.textContent = "copy"; }, 1400); }
+    function selectIt() {
+      var r = document.createRange(); r.selectNodeContents(el);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      done("selected");
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done("copied"); }, selectIt);
+    } else { selectIt(); }
+  });
+});
+</script>
+</body>
+</html>

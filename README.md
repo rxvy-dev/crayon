@@ -1,5 +1,7 @@
 # 🖍️ crayon.h
 
+**Website:** see `docs/` (turn on GitHub Pages to host it).
+
 **The easiest way to draw, make games and make apps in C.**
 One file. No setup. No libraries to link. Just `#include` it and go.
 
