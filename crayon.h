@@ -8901,6 +8901,8 @@ TT void _tt_rrect(Drawable d, int x, int y, int w, int h, int r, unsigned long c
 /* BUTTONS / LINKS / TEXT BOX layout                            */
 /* ============================================================ */
 TT int _tt_tagged(Drawable d, _TtFont *f, int x, int y, unsigned long c, const char *s, int draw);
+TT int _tt_block(Drawable d, _TtFont *f, int x, int y, unsigned long c, const char *s, int align, int draw);
+TT int _tt_nlines(const char *s) { int n = 1; for (; *s; s++) if (*s == '\n') n++; return n; }
 TT int _tt_btn_visible(_TtButton *b) { return b->used && (!b->imm || b->last == _tt.frame); }
 TT int _tt_tb_visible(void) { return _tt.tb_on && (!_tt.tb_imm || _tt.tb_last == _tt.frame); }
 
@@ -8911,16 +8913,17 @@ TT void _tt_layout(void) {
         _TtButton *b = &_tt.btn[i];
         if (!_tt_btn_visible(b)) continue;
         _TtFont *f = _tt_font(b->size, b->kind != 2 || b->bold);
-        int tw = _tt_tagged(_tt.buf, f, 0, 0, 0, b->label, 0);
+        int tw = _tt_block(_tt.buf, f, 0, 0, 0, b->label, 0, 0);
+        int more = (_tt_nlines(b->label) - 1) * (f->asc + f->desc + 2);   /* extra lines ("\n") */
         if (b->kind == 2) {                                   /* link */
             _TtFont *nf = f;
-            b->w = tw; b->h = nf->asc + nf->desc + 2;
+            b->w = tw; b->h = nf->asc + nf->desc + 2 + more;
             b->x = _TT_SX(b->cx); b->y = _TT_SY(b->cy) - nf->asc;
             continue;
         }
-        b->w = tw + 28; b->h = f->asc + f->desc + 14;
+        b->w = tw + 28; b->h = f->asc + f->desc + 14 + more;
         if (b->kind == 0) {
-            if (b->h > 34) b->h = 34;
+            if (b->h > 34 && !more) b->h = 34;
             b->x = bx; b->y = (_TT_BARH - b->h) / 2;
             bx += b->w + 8;
             _tt.nbar++;
@@ -9084,6 +9087,40 @@ TT int _tt_tagged(Drawable d, _TtFont *f, int x, int y, unsigned long c, const c
     return x - x0;
 }
 
+/* text with "\n" in it, one line under the other. Colors and effects carry to the next line.
+ * align: 0 = lines start at x,  1 = each line centered on x,  2 = lines centered inside the block that starts at x
+ * gives back the width of the widest line */
+TT int _tt_block(Drawable d, _TtFont *f, int x, int y, unsigned long c, const char *s, int align, int draw) {
+    int lh = f->asc + f->desc + 2, ln = 0, maxw = 0;
+    int bw = align == 2 && draw ? _tt_block(d, f, 0, 0, c, s, 0, 0) : 0;
+    const char *p = s;
+    char cfx[32] = "", ccol[32] = "";
+    for (;;) {
+        const char *nl = strchr(p, '\n');
+        char one[2048];
+        int n = nl ? (int)(nl - p) : (int)strlen(p);
+        int cl = snprintf(one, sizeof one, "%s%s", cfx, ccol);
+        if (n > 2047 - cl) n = 2047 - cl;
+        memcpy(one + cl, p, (size_t)n); one[cl + n] = 0;
+        for (const char *q = one; *q; q++) {               /* remember the last color and effect */
+            int len, k = _tt_tag(q, &len, NULL);
+            if (!k) continue;
+            if (k >= 10) snprintf(cfx, sizeof cfx, "%.*s", len, q);
+            else snprintf(ccol, sizeof ccol, "%.*s", len, q);
+            q += len - 1;
+        }
+        int w = _tt_tagged(d, f, 0, 0, c, one, 0);
+        if (w > maxw) maxw = w;
+        if (draw) {
+            int lx = align == 1 ? x - w / 2 : align == 2 ? x + (bw - w) / 2 : x;
+            _tt_tagged(d, f, lx, y + ln * lh, c, one, 1);
+        }
+        if (!nl) break;
+        p = nl + 1; ln++;
+    }
+    return maxw;
+}
+
 /* ---- the loading bar ---- */
 static struct {
     int on, timed;
@@ -9137,7 +9174,7 @@ TT void _tt_draw_loading(Drawable d) {
     _TtFont *f = _tt_font(18, 1);
     char pct[16];
     snprintf(pct, sizeof pct, "%d%%", (int)(_tt_ld.shown + 0.5f));
-    if (_tt_ld.label[0]) _tt_tagged(d, f, x + 2, y - 10, ink, _tt_ld.label, 1);
+    if (_tt_ld.label[0]) _tt_block(d, f, x + 2, y - 10 - (_tt_nlines(_tt_ld.label) - 1) * (f->asc + f->desc + 2), ink, _tt_ld.label, 0, 1);
     _tt_str(d, f, x + w - _tt_tw(f, pct) - 2, y - 10, ink, pct);
 }
 
@@ -9281,30 +9318,8 @@ TT void _tt_refresh(void) {
     for (int i = 0; i < _tt.ntxt; i++) {
         _TtText *t = &_tt.txt[i];
         _TtFont *f = _tt_font(t->size, t->bold);
-        int line_h = f->asc + f->desc + 2, ln = 0;
-        const char *p = t->s;
-        char cfx[32] = "", ccol[32] = "";                 /* color and effect that carry to the next line */
         _tt_vis_left = t->shown;
-        for (;;) {                                         /* one line at a time ("\n" = new line) */
-            const char *nl = strchr(p, '\n');
-            char one[2048];
-            int n = nl ? (int)(nl - p) : (int)strlen(p);
-            int cl = snprintf(one, sizeof one, "%s%s", cfx, ccol);
-            if (n > 2047 - cl) n = 2047 - cl;
-            memcpy(one + cl, p, (size_t)n); one[cl + n] = 0;
-            for (const char *q = one; *q; q++) {           /* remember the last color and effect */
-                int len, k = _tt_tag(q, &len, NULL);
-                if (!k) continue;
-                if (k >= 10) snprintf(cfx, sizeof cfx, "%.*s", len, q);
-                else snprintf(ccol, sizeof ccol, "%.*s", len, q);
-                q += len - 1;
-            }
-            int x = _TT_SX(t->x);
-            if (t->center) x -= _tt_tagged(_tt.buf, f, 0, 0, t->c, one, 0) / 2;
-            _tt_tagged(_tt.buf, f, x, _TT_SY(t->y) + ln * line_h, t->c, one, 1);
-            if (!nl) break;
-            p = nl + 1; ln++;
-        }
+        _tt_block(_tt.buf, f, _TT_SX(t->x), _TT_SY(t->y), t->c, t->s, t->center ? 1 : 0, 1);
         _tt_vis_left = -1;
     }
     _tt_draw_loading(_tt.buf);
@@ -9332,15 +9347,16 @@ TT void _tt_refresh(void) {
         int hover = _tt.mx >= b->x && _tt.mx < b->x + b->w && _tt.my >= b->y && _tt.my < b->y + b->h;
         if (b->kind == 2) {
             _TtFont *f = _tt_font(b->size, b->bold);
-            _tt_tagged(_tt.buf, f, b->x, b->y + f->asc, b->fg, b->label, 1);
-            if (hover) { XSetForeground(d, _tt.gc, b->fg); XFillRectangle(d, _tt.buf, _tt.gc, b->x, b->y + f->asc + 2, (unsigned)b->w, 1); }
+            _tt_block(_tt.buf, f, b->x, b->y + f->asc, b->fg, b->label, 0, 1);
+            if (hover) { XSetForeground(d, _tt.gc, b->fg); XFillRectangle(d, _tt.buf, _tt.gc, b->x, b->y + b->h - f->desc, (unsigned)b->w, 1); }
             continue;
         }
         _TtFont *f = _tt_font(b->size, 1);
         unsigned long bgc = hover ? _tt_shade(b->bg) : b->bg;
         _tt_rrect(_tt.buf, b->x, b->y, b->w, b->h, 7, bgc, 1);
         _tt_rrect(_tt.buf, b->x, b->y, b->w, b->h, 7, _tt_shade(_tt_shade(b->bg)), 0);
-        _tt_tagged(_tt.buf, f, b->x + 14, b->y + (b->h + f->asc - f->desc) / 2, b->fg, b->label, 1);
+        int more = (_tt_nlines(b->label) - 1) * (f->asc + f->desc + 2);
+        _tt_block(_tt.buf, f, b->x + 14, b->y + (b->h - more + f->asc - f->desc) / 2, b->fg, b->label, 2, 1);
     }
 
     /* 6. the text box */
@@ -9830,7 +9846,7 @@ TT int touching(Turtle other);
 TT int _tt_text_image(const char *s, int slot) {
     _TtFont *f = _tt_font(_tt.tsize, _tt.tbold);
     unsigned long c = _TT_T->color;
-    int w = _tt_tagged(_tt.buf, f, 0, 0, c, s, 0) + 4, h = f->asc + f->desc + 4;
+    int w = _tt_block(_tt.buf, f, 0, 0, c, s, 0, 0) + 4, h = _tt_nlines(s) * (f->asc + f->desc + 2) + 2;
     if (w > _tt.W) w = _tt.W;
     if (h > _tt.H) h = _tt.H;
     if (w < 1) w = 1;
@@ -9838,7 +9854,7 @@ TT int _tt_text_image(const char *s, int slot) {
     for (int k = 0; k < 2; k++) {                  /* draw it on black, then on white */
         XSetForeground(_tt.dpy, _tt.gc, k ? WHITE : BLACK);
         XFillRectangle(_tt.dpy, _tt.buf, _tt.gc, 0, 0, (unsigned)w, (unsigned)h);
-        _tt_tagged(_tt.buf, f, 2, 2 + f->asc, c, s, 1);
+        _tt_block(_tt.buf, f, 2, 2 + f->asc, c, s, 2, 1);
         im[k] = XGetImage(_tt.dpy, _tt.buf, 0, 0, (unsigned)w, (unsigned)h, AllPlanes, ZPixmap);
     }
     int i = slot;
@@ -10152,7 +10168,7 @@ TT void say(const char *fmt, ...) {
     _tt_addtext(_TT_T->x, _TT_T->y, 0, b);
 }
 /* text_width("Hello")   how wide that text is (with the current textsize) */
-TT float text_width(const char *s) { _tt_check(); return (float)_tt_tagged(_tt.buf, _tt_font(_tt.tsize, _tt.tbold), 0, 0, 0, s, 0); }
+TT float text_width(const char *s) { _tt_check(); return (float)_tt_block(_tt.buf, _tt_font(_tt.tsize, _tt.tbold), 0, 0, 0, s, 0, 0); }
 
 
 /* ============================================================ */
@@ -10361,7 +10377,10 @@ TT void _tt_textbox(float x, float y, float width, const char *hint) {
     _tt_check();
     _tt.tb_on = 1; _tt.tb_imm = _tt.loop_mode; _tt.tb_last = _tt.frame;
     _tt.tb_x = x; _tt.tb_y = y; _tt.tb_w = width < 80 ? 80 : width;
-    if (hint) snprintf(_tt.hint, sizeof _tt.hint, "%s", hint);
+    if (hint) {
+        snprintf(_tt.hint, sizeof _tt.hint, "%s", hint);
+        for (char *p = _tt.hint; *p; p++) if (*p == '\n') *p = ' ';    /* the box is one line */
+    }
     _tt_show();
 }
 /* inputbox("Type here...", 0, 0, 400, got_it);

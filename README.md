@@ -417,6 +417,8 @@ text("Hi 😀 🐢 🔥", 0, -100);                       // emoji work too (in 
 text("Score: %d", -200, 150, score);              // numbers inside
 text_center("Title", 0, 150);                     // centered on x, y
 text("line one\nline two", 0, 100);               // \n = new line
+text_center("{red}Title\nunder it", 0, 0);     // \n works everywhere: text_center, label, add_text,
+                                                  // buttons, links, type_text, loading bars (colors carry over)
 textsize(40);
 bold(1);
 ```
