@@ -1289,7 +1289,7 @@ static stbi__uint16 *stbi__convert_8_to_16(stbi_uc *orig, int w, int h, int chan
    return enlarged;
 }
 
-static void stbi__vertical_flip(void *image, int w, int h, int bytes_per_pixel)
+static _TT_FAST void stbi__vertical_flip(void *image, int w, int h, int bytes_per_pixel)
 {
    int row;
    size_t bytes_per_row = (size_t)w * bytes_per_pixel;
@@ -1822,7 +1822,7 @@ static stbi_uc stbi__compute_y(int r, int g, int b)
 #if defined(STBI_NO_PNG) && defined(STBI_NO_BMP) && defined(STBI_NO_PSD) && defined(STBI_NO_TGA) && defined(STBI_NO_GIF) && defined(STBI_NO_PIC) && defined(STBI_NO_PNM)
 // nothing
 #else
-static unsigned char *stbi__convert_format(unsigned char *data, int img_n, int req_comp, unsigned int x, unsigned int y)
+static _TT_FAST unsigned char *stbi__convert_format(unsigned char *data, int img_n, int req_comp, unsigned int x, unsigned int y)
 {
    int i,j;
    unsigned char *good;
@@ -2164,7 +2164,7 @@ static void stbi__grow_buffer_unsafe(stbi__jpeg *j)
 static const stbi__uint32 stbi__bmask[17]={0,1,3,7,15,31,63,127,255,511,1023,2047,4095,8191,16383,32767,65535};
 
 // decode a jpeg huffman value from the bitstream
-stbi_inline static int stbi__jpeg_huff_decode(stbi__jpeg *j, stbi__huffman *h)
+stbi_inline static _TT_FAST int stbi__jpeg_huff_decode(stbi__jpeg *j, stbi__huffman *h)
 {
    unsigned int temp;
    int c,k;
@@ -2220,7 +2220,7 @@ static const int stbi__jbias[16] = {0,-1,-3,-7,-15,-31,-63,-127,-255,-511,-1023,
 
 // combined JPEG 'receive' and JPEG 'extend', since baseline
 // always extends everything it receives.
-stbi_inline static int stbi__extend_receive(stbi__jpeg *j, int n)
+stbi_inline static _TT_FAST int stbi__extend_receive(stbi__jpeg *j, int n)
 {
    unsigned int k;
    int sgn;
@@ -2277,7 +2277,7 @@ static const stbi_uc stbi__jpeg_dezigzag[64+15] =
 };
 
 // decode one 64-entry block--
-static int stbi__jpeg_decode_block(stbi__jpeg *j, short data[64], stbi__huffman *hdc, stbi__huffman *hac, stbi__int16 *fac, int b, stbi__uint16 *dequant)
+static _TT_FAST int stbi__jpeg_decode_block(stbi__jpeg *j, short data[64], stbi__huffman *hdc, stbi__huffman *hac, stbi__int16 *fac, int b, stbi__uint16 *dequant)
 {
    int diff,dc,k;
    int t;
@@ -2534,7 +2534,7 @@ stbi_inline static stbi_uc stbi__clamp(int x)
    t1 += p2+p4;                                \
    t0 += p1+p3;
 
-static void stbi__idct_block(stbi_uc *out, int out_stride, short data[64])
+static _TT_FAST void stbi__idct_block(stbi_uc *out, int out_stride, short data[64])
 {
    int i,val[64],*v=val;
    stbi_uc *o;
@@ -3016,7 +3016,7 @@ static void stbi__jpeg_reset(stbi__jpeg *j)
    // since we don't even allow 1<<30 pixels
 }
 
-static int stbi__parse_entropy_coded_data(stbi__jpeg *z)
+static _TT_FAST int stbi__parse_entropy_coded_data(stbi__jpeg *z)
 {
    stbi__jpeg_reset(z);
    if (!z->progressive) {
@@ -3572,7 +3572,7 @@ static stbi_uc*  stbi__resample_row_h_2(stbi_uc *out, stbi_uc *in_near, stbi_uc 
 
 #define stbi__div16(x) ((stbi_uc) ((x) >> 4))
 
-static stbi_uc *stbi__resample_row_hv_2(stbi_uc *out, stbi_uc *in_near, stbi_uc *in_far, int w, int hs)
+static _TT_FAST stbi_uc *stbi__resample_row_hv_2(stbi_uc *out, stbi_uc *in_near, stbi_uc *in_far, int w, int hs)
 {
    // need to generate 2x2 samples for every one in input
    int i,t0,t1;
@@ -3713,7 +3713,7 @@ static stbi_uc *stbi__resample_row_hv_2_simd(stbi_uc *out, stbi_uc *in_near, stb
 }
 #endif
 
-static stbi_uc *stbi__resample_row_generic(stbi_uc *out, stbi_uc *in_near, stbi_uc *in_far, int w, int hs)
+static _TT_FAST stbi_uc *stbi__resample_row_generic(stbi_uc *out, stbi_uc *in_near, stbi_uc *in_far, int w, int hs)
 {
    // resample with nearest-neighbor
    int i,j;
@@ -3727,7 +3727,7 @@ static stbi_uc *stbi__resample_row_generic(stbi_uc *out, stbi_uc *in_near, stbi_
 // this is a reduced-precision calculation of YCbCr-to-RGB introduced
 // to make sure the code produces the same results in both SIMD and scalar
 #define stbi__float2fixed(x)  (((int) ((x) * 4096.0f + 0.5f)) << 8)
-static void stbi__YCbCr_to_RGB_row(stbi_uc *out, const stbi_uc *y, const stbi_uc *pcb, const stbi_uc *pcr, int count, int step)
+static _TT_FAST void stbi__YCbCr_to_RGB_row(stbi_uc *out, const stbi_uc *y, const stbi_uc *pcb, const stbi_uc *pcr, int count, int step)
 {
    int i;
    for (i=0; i < count; ++i) {
@@ -4269,7 +4269,7 @@ stbi_inline static stbi_uc stbi__zget8(stbi__zbuf *z)
    return stbi__zeof(z) ? 0 : *z->zbuffer++;
 }
 
-static void stbi__fill_bits(stbi__zbuf *z)
+static _TT_FAST void stbi__fill_bits(stbi__zbuf *z)
 {
    do {
       if (z->code_buffer >= (1U << z->num_bits)) {
@@ -4281,7 +4281,7 @@ static void stbi__fill_bits(stbi__zbuf *z)
    } while (z->num_bits <= 24);
 }
 
-stbi_inline static unsigned int stbi__zreceive(stbi__zbuf *z, int n)
+stbi_inline static _TT_FAST unsigned int stbi__zreceive(stbi__zbuf *z, int n)
 {
    unsigned int k;
    if (z->num_bits < n) stbi__fill_bits(z);
@@ -4291,7 +4291,7 @@ stbi_inline static unsigned int stbi__zreceive(stbi__zbuf *z, int n)
    return k;
 }
 
-static int stbi__zhuffman_decode_slowpath(stbi__zbuf *a, stbi__zhuffman *z)
+static _TT_FAST int stbi__zhuffman_decode_slowpath(stbi__zbuf *a, stbi__zhuffman *z)
 {
    int b,s,k;
    // not resolved by fast table, so compute it the slow way
@@ -4310,7 +4310,7 @@ static int stbi__zhuffman_decode_slowpath(stbi__zbuf *a, stbi__zhuffman *z)
    return z->value[b];
 }
 
-stbi_inline static int stbi__zhuffman_decode(stbi__zbuf *a, stbi__zhuffman *z)
+stbi_inline static _TT_FAST int stbi__zhuffman_decode(stbi__zbuf *a, stbi__zhuffman *z)
 {
    int b,s;
    if (a->num_bits < 16) {
@@ -4376,7 +4376,7 @@ static const int stbi__zdist_base[32] = { 1,2,3,4,5,7,9,13,17,25,33,49,65,97,129
 static const int stbi__zdist_extra[32] =
 { 0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13};
 
-static int stbi__parse_huffman_block(stbi__zbuf *a)
+static _TT_FAST int stbi__parse_huffman_block(stbi__zbuf *a)
 {
    char *zout = a->zout;
    for(;;) {
@@ -4724,7 +4724,7 @@ static stbi_uc first_row_filter[5] =
    STBI__F_sub // Paeth with b=c=0 turns out to be equivalent to sub
 };
 
-static int stbi__paeth(int a, int b, int c)
+static _TT_FAST int stbi__paeth(int a, int b, int c)
 {
    // This formulation looks very different from the reference in the PNG spec, but is
    // actually equivalent and has favorable data dependencies and admits straightforward
@@ -4742,7 +4742,7 @@ static const stbi_uc stbi__depth_scale_table[9] = { 0, 0xff, 0x55, 0, 0x11, 0,0,
 // adds an extra all-255 alpha channel
 // dest == src is legal
 // img_n must be 1 or 3
-static void stbi__create_png_alpha_expand8(stbi_uc *dest, stbi_uc *src, stbi__uint32 x, int img_n)
+static _TT_FAST void stbi__create_png_alpha_expand8(stbi_uc *dest, stbi_uc *src, stbi__uint32 x, int img_n)
 {
    int i;
    // must process data backwards since we allow dest==src
@@ -4763,7 +4763,7 @@ static void stbi__create_png_alpha_expand8(stbi_uc *dest, stbi_uc *src, stbi__ui
 }
 
 // create the png data from post-deflated data
-static int stbi__create_png_image_raw(stbi__png *a, stbi_uc *raw, stbi__uint32 raw_len, int out_n, stbi__uint32 x, stbi__uint32 y, int depth, int color)
+static _TT_FAST int stbi__create_png_image_raw(stbi__png *a, stbi_uc *raw, stbi__uint32 raw_len, int out_n, stbi__uint32 x, stbi__uint32 y, int depth, int color)
 {
    int bytes = (depth == 16 ? 2 : 1);
    stbi__context *s = a->s;
@@ -4973,7 +4973,7 @@ static int stbi__create_png_image(stbi__png *a, stbi_uc *image_data, stbi__uint3
    return 1;
 }
 
-static int stbi__compute_transparency(stbi__png *z, stbi_uc tc[3], int out_n)
+static _TT_FAST int stbi__compute_transparency(stbi__png *z, stbi_uc tc[3], int out_n)
 {
    stbi__context *s = z->s;
    stbi__uint32 i, pixel_count = s->img_x * s->img_y;
@@ -6721,7 +6721,7 @@ static int stbi__gif_info_raw(stbi__context *s, int *x, int *y, int *comp)
    return 1;
 }
 
-static void stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
+static _TT_FAST void stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
 {
    stbi_uc *p, *c;
    int idx;
@@ -6758,7 +6758,7 @@ static void stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
    }
 }
 
-static stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
+static _TT_FAST stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
 {
    stbi_uc lzw_cs;
    stbi__int32 len, init_code;
@@ -6845,7 +6845,7 @@ static stbi_uc *stbi__process_gif_raster(stbi__context *s, stbi__gif *g)
 
 // this function is designed to support animated gifs, although stb_image doesn't support it
 // two back is the image from two frames ago, used for a very specific disposal format
-static stbi_uc *stbi__gif_load_next(stbi__context *s, stbi__gif *g, int *comp, int req_comp, stbi_uc *two_back)
+static _TT_FAST stbi_uc *stbi__gif_load_next(stbi__context *s, stbi__gif *g, int *comp, int req_comp, stbi_uc *two_back)
 {
    int dispose;
    int first_frame;
@@ -8130,7 +8130,7 @@ typedef int Turtle;
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
     F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty) \
-    F(XSetClipRectangles) F(XSetClipMask) F(XSync) F(XSetErrorHandler) F(XSetDashes)
+    F(XSetClipRectangles) F(XSetClipMask) F(XSync) F(XSetErrorHandler) F(XSetDashes) F(XFreePixmap)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8181,6 +8181,7 @@ TT void _tt_loadx(void) {
 #define XSync               (_xl.XSync)
 #define XSetErrorHandler    (_xl.XSetErrorHandler)
 #define XSetDashes          (_xl.XSetDashes)
+#define XFreePixmap         (_xl.XFreePixmap)
 #define XkbSetDetectableAutoRepeat (_xl.XkbSetDetectableAutoRepeat)
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
@@ -8936,6 +8937,25 @@ TT int _tt_shm_ready(void) {
                  && _tt_shm.Query(_tt.dpy);
     return _tt_shm.ok;
 }
+/* does the X server really see our memory? (it might not, e.g. when the program runs in a
+ * sandbox like a Flatpak terminal or distrobox). Send one pixel through it and read it back. */
+TT int _tt_shm_works(_TtPix *p) {
+    uint32_t *px = (uint32_t *)p->im->data, keep = px[0];
+    px[0] = 0x00C3A57Bu;
+    Pixmap tp = XCreatePixmap(_tt.dpy, _tt.win, 1, 1, (unsigned)_tt.depth);
+    _tt_shm.err = 0;
+    int (*old)(Display *, XErrorEvent *) = XSetErrorHandler(_tt_shm_oops);
+    _tt_shm.Put(_tt.dpy, tp, _tt.gc, p->im, 0, 0, 0, 0, 1, 1, False);
+    XImage *chk = XGetImage(_tt.dpy, tp, 0, 0, 1, 1, AllPlanes, ZPixmap);
+    XSync(_tt.dpy, False);
+    XSetErrorHandler(old);
+    int ok = !_tt_shm.err && chk && (XGetPixel(chk, 0, 0) & 0xFFFFFF) == 0xC3A57B;
+    if (chk) XDestroyImage(chk);
+    XFreePixmap(_tt.dpy, tp);
+    px[0] = keep;
+    if (!ok && getenv("CRAYON_DEBUG")) fprintf(stderr, "crayon.h: shared memory doesn't work here, using the normal way\n");
+    return ok;
+}
 TT int _tt_pix_make(_TtPix *p, int w, int h) {
     memset(p, 0, sizeof *p);
     if (_tt_shm_ready()) {
@@ -8952,7 +8972,8 @@ TT int _tt_pix_make(_TtPix *p, int w, int h) {
                     XSync(_tt.dpy, False);
                     XSetErrorHandler(old);
                     shmctl(p->si.shmid, IPC_RMID, NULL);          /* goes away by itself when we close */
-                    if (!_tt_shm.err) { p->shm = 1; return 1; }
+                    if (!_tt_shm.err && _tt_shm_works(p)) { p->shm = 1; return 1; }
+                    if (!_tt_shm.err) { _tt_shm.Detach(_tt.dpy, &p->si); XSync(_tt.dpy, False); }
                     shmdt(p->si.shmaddr);
                 } else shmctl(p->si.shmid, IPC_RMID, NULL);
             }
@@ -9417,7 +9438,8 @@ TT _TT_FAST void _tt_refresh(void) {
                         if (!tiles[r * tcols + c]) { tiles[r * tcols + c] = 1; covered++; }
             }
             int whole = covered * 10 > (long)tcols * trows * 6;        /* most of the screen: just do it all */
-            if (!whole || !covered) { XCopyArea(d, _tt.canvas, _tt.buf, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0); copied = 1; }
+            if (!whole || !covered) XCopyArea(d, _tt.canvas, _tt.buf, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0);
+            copied = 1;                                         /* (when it's the whole screen, the frame below covers it all) */
             static int span[4096][3];
             int nspan = 0;
             if (whole) { span[0][0] = 0; span[0][1] = 0; span[0][2] = _tt.W; nspan = 1; }
