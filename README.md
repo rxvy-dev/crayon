@@ -700,7 +700,8 @@ gcc search.c -o search && ./search
 
 ## Speed
 
-Fast even with plain `gcc main.c`: crayon turns on its own optimizations, so you don't need `-O2`.
+Fast even with plain `gcc main.c`: the parts that draw pixels always build optimized, so you don't need `-O2`,
+and compiling still takes about a second.
 It shares picture memory straight with the X server (MIT-SHM), only redraws the parts of the window
 that pictures cover, and keeps a ready-to-draw copy of every picture.
 

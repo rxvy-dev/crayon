@@ -47,12 +47,12 @@
 #include <emmintrin.h>
 #endif
 
-/* crayon.h always builds itself with optimizations on (so plain `gcc main.c` is fast).
- * Your own code still uses whatever you pass to gcc.  #define CRAYON_NO_OPTIMIZE to turn this off. */
+/* the few functions that touch every pixel every frame are always built with optimizations on,
+ * so plain `gcc main.c` draws fast AND compiles fast.  #define CRAYON_NO_OPTIMIZE to turn this off. */
 #if defined(__GNUC__) && !defined(__clang__) && !defined(__OPTIMIZE__) && !defined(CRAYON_NO_OPTIMIZE)
-#pragma GCC push_options
-#pragma GCC optimize("O2")
-#define _TT_POP_OPTIMIZE
+#define _TT_FAST __attribute__((optimize("O2")))
+#else
+#define _TT_FAST
 #endif
 
 /* ---- stb_image by Sean Barrett (public domain / MIT) - reads png, jpg, bmp, gif, tga, psd ---- */
@@ -8822,7 +8822,7 @@ TT float _tt_dim_of(_TtTurtle *t) {
 }
 /* the picture as ready-to-draw pixels: 0xAARRGGBB with the color already multiplied by see-through.
  * Made once per picture (and again when a gif or video shows its next frame), so drawing it is cheap */
-TT void _tt_pm_fill(uint32_t *d, const unsigned char *s, size_t n) {
+TT _TT_FAST void _tt_pm_fill(uint32_t *d, const unsigned char *s, size_t n) {
     for (size_t i = 0; i < n; i++, s += 4) {
         unsigned a = s[3];
         d[i] = a == 255 ? 0xFF000000u | (uint32_t)s[0] << 16 | (uint32_t)s[1] << 8 | s[2]
@@ -8839,7 +8839,7 @@ TT const uint32_t *_tt_pm(_TtImage *g) {
     }
     return g->pm;
 }
-TT uint32_t _tt_dimpx(uint32_t v, unsigned keep) {
+TT _TT_FAST uint32_t _tt_dimpx(uint32_t v, unsigned keep) {
     return (v & 0xFF000000u) | ((((v & 0xFF00FFu) * keep) >> 8) & 0xFF00FFu) | ((((v & 0xFF00u) * keep) >> 8) & 0xFF00u);
 }
 /* one ready-to-draw pixel onto one screen pixel (0xRRGGBB) */
@@ -8856,7 +8856,7 @@ TT uint32_t _tt_dimpx(uint32_t v, unsigned keep) {
     }                                                                                  \
 } while (0)
 
-TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip, float dim) {
+TT _TT_FAST void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip, float dim) {
     int x0, y0, x1, y1;
     if (!_tt_pic_box(g, cx, cy, sc, ang, &x0, &y0, &x1, &y1)) return;
     if (x1 > im->width) x1 = im->width;
@@ -9365,7 +9365,7 @@ TT void _tt_anim_step(void) {
 TT void _tt_draw_term(Drawable d);
 TT void _tt_draw_ui(Drawable d, int top);
 TT void _tt_draw_coords(Drawable d);
-TT void _tt_refresh(void) {
+TT _TT_FAST void _tt_refresh(void) {
     _tt_anim_step();
     if (_tt.closed || !_tt.dpy) return;
     Display *d = _tt.dpy;
@@ -12333,9 +12333,5 @@ TT void play(void) {
     while (update()) _tt_game_step();
 }
 TT void _tt_game_autoplay(void) { if (_tt_game.active && _tt.dpy && !_tt.closed) play(); }
-
-#ifdef _TT_POP_OPTIMIZE
-#pragma GCC pop_options
-#endif
 
 #endif
