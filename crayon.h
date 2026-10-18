@@ -8307,7 +8307,7 @@ static struct {
     char last_label[96];
     char input[200], entry[200], hint[120], msg[160];
 
-    unsigned long bar_c, btn_c, btn_text, box_c, box_text, box_hint, box_line;
+    unsigned long bar_c, btn_c, btn_text, box_c, box_text, box_hint, box_line, box_focus;
     int coords_on, cursor_now;
     unsigned long cursors[3];
     long frame;
@@ -9364,8 +9364,8 @@ TT void _tt_refresh(void) {
     if (_tt_tb_px(&tx, &ty, &tw)) {
         _TtFont *f = _tt_font(17, 0);
         _tt_rrect(_tt.buf, tx, ty, tw, _TT_TBH, _TT_TBH / 2, _tt.box_c, 1);
-        _tt_rrect(_tt.buf, tx, ty, tw, _TT_TBH, _TT_TBH / 2, _tt.focus ? BLUE : _tt.box_line, 0);
-        if (_tt.focus) _tt_rrect(_tt.buf, tx + 1, ty + 1, tw - 2, _TT_TBH - 2, _TT_TBH / 2 - 1, BLUE, 0);
+        _tt_rrect(_tt.buf, tx, ty, tw, _TT_TBH, _TT_TBH / 2, _tt.focus ? _tt.box_focus : _tt.box_line, 0);
+        if (_tt.focus) _tt_rrect(_tt.buf, tx + 1, ty + 1, tw - 2, _TT_TBH - 2, _TT_TBH / 2 - 1, _tt.box_focus, 0);
         int base = ty + (_TT_TBH + f->asc - f->desc) / 2;
         if (!_tt.input[0]) {
             _tt_str(_tt.buf, f, tx + 22, base, _tt.box_hint, _tt.msg[0] && !_tt.focus ? _tt.msg : _tt.hint);
@@ -9454,7 +9454,7 @@ TT void window(int w, int h) {
     snprintf(_tt.hint, sizeof _tt.hint, "Type here...");
     _tt.bar_c = 0xF1F3F4;
     _tt.btn_c = 0xF8F9FA; _tt.btn_text = 0x202124;
-    _tt.box_c = WHITE; _tt.box_text = 0x202124; _tt.box_hint = 0x80868B; _tt.box_line = 0xC9CDD2;
+    _tt.box_c = WHITE; _tt.box_text = 0x202124; _tt.box_hint = 0x80868B; _tt.box_line = 0xC9CDD2; _tt.box_focus = BLUE;
 
     _tt.win = XCreateSimpleWindow(d, RootWindow(d, scr), wx, wy, w, h, 0, 0, WHITE);
     XStoreName(d, _tt.win, "Crayon");
@@ -11027,6 +11027,23 @@ TT void dark_mode(void) {
     for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].color == BLACK) _tt.t[i].color = WHITE;
     background(0x202124);
 }
+
+/* input_color("black", "white");          color of the input box, and of the words you type in it
+ * input_color("black", "white", "red");   + the color of its border
+ * (works for userinput(), numberinput() and inputbox()) */
+TT void _tt_input_color3(unsigned long box, unsigned long words, unsigned long border) {
+    _tt.box_c = box; _tt.box_text = words;
+    _tt.box_hint = _tt_mix(words, box, 0.45f);               /* the gray hint = in between */
+    _tt.box_line = _tt.box_focus = border;
+    _tt_show();
+}
+TT void _tt_input_color2(unsigned long box, unsigned long words) {
+    _tt_input_color3(box, words, _tt_mix(words, box, 0.6f));
+    _tt.box_focus = BLUE;
+}
+#define _tt_ic3(a, b, c) _tt_input_color3(_TT_COL(a), _TT_COL(b), _TT_COL(c))
+#define _tt_ic2(a, b) _tt_input_color2(_TT_COL(a), _TT_COL(b))
+#define input_color(...) _TT_PICK3(__VA_ARGS__, _tt_ic3, _tt_ic2, 0)(__VA_ARGS__)
 
 
 /* ============================================================ */

@@ -519,6 +519,13 @@ void got_it(void) {
 inputbox("Type here...", 0, -200, 500, got_it);
 ```
 
+Color the input box (for `userinput()` too). Call it **before** the box:
+
+```c
+input_color("black", "white");          // box color, color of the words you type
+input_color("#1b1b1b", "white", "red"); // + border color
+```
+
 <img src="screenshots/commands.png" width="520">
 
 ## Pages
@@ -771,7 +778,7 @@ text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
 {party} {wave} {shake} {blink} {pulse} {still}  type_text("...", x, y)  type_text_center("...", x, y)  type_speed(n)
 loading("...", sec)  loading("...", sec, x, y)  start_loading("...", sec)  loading_done()  progress("...", pct)  progress(pct)  loading_color("c")  loading_size(w, h)  hide_loading()
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
-button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")
+button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")  input_color("bg", "text", "border")
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
 run("cmd %s", word)  run_ok()  run_output()
