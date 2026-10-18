@@ -36,6 +36,23 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <stddef.h>
+#include <limits.h>
+#include <math.h>
+#include <assert.h>
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#endif
+
+/* crayon.h always builds itself with optimizations on (so plain `gcc main.c` is fast).
+ * Your own code still uses whatever you pass to gcc.  #define CRAYON_NO_OPTIMIZE to turn this off. */
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__OPTIMIZE__) && !defined(CRAYON_NO_OPTIMIZE)
+#pragma GCC push_options
+#pragma GCC optimize("O2")
+#define _TT_POP_OPTIMIZE
+#endif
 
 /* ---- stb_image by Sean Barrett (public domain / MIT) - reads png, jpg, bmp, gif, tga, psd ---- */
 #ifndef STBI_INCLUDE_STB_IMAGE_H
@@ -8112,7 +8129,7 @@ typedef int Turtle;
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
     F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty) \
-    F(XSetClipRectangles) F(XSetClipMask)
+    F(XSetClipRectangles) F(XSetClipMask) F(XSync) F(XSetErrorHandler)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8160,6 +8177,8 @@ TT void _tt_loadx(void) {
 #define XPending            (_xl.XPending)
 #define XSetClipRectangles  (_xl.XSetClipRectangles)
 #define XSetClipMask        (_xl.XSetClipMask)
+#define XSync               (_xl.XSync)
+#define XSetErrorHandler    (_xl.XSetErrorHandler)
 #define XkbSetDetectableAutoRepeat (_xl.XkbSetDetectableAutoRepeat)
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
@@ -8246,6 +8265,7 @@ typedef struct {
     void *video;                                                            /* videos */
     float size;                                                             /* size_all() remembers it here */
     int layer; float dim;                                                   /* layer("x.png", 80);  dim("x.png", 0.5); */
+    uint32_t *pm; const unsigned char *pm_src; size_t pm_n; int ver, pm_ver; /* ready-to-draw copy of px */
 } _TtImage;
 typedef struct { int size, bold; void *xft; XFontStruct *core; int asc, desc; void *emoji; int emoji_tried; } _TtFont;
 typedef struct {
@@ -8723,6 +8743,7 @@ TT void _tt_image_tick(_TtImage *g) {
         int reads = 0;
         while (v->shown < want && reads < 4) {             /* catch up, but don't freeze */
             if (!_tt_video_read(v, g->px)) break;
+            g->ver++;
             if (v->shown == 1) break;                       /* it just looped */
             reads++;
         }
@@ -8797,39 +8818,166 @@ TT float _tt_dim_of(_TtTurtle *t) {
     if (t->has_dim) return t->dim;
     return t->img >= 0 && t->img < _tt.nimg ? _tt.img[t->img].dim : 0;
 }
+/* the picture as ready-to-draw pixels: 0xAARRGGBB with the color already multiplied by see-through.
+ * Made once per picture (and again when a gif or video shows its next frame), so drawing it is cheap */
+TT void _tt_pm_fill(uint32_t *d, const unsigned char *s, size_t n) {
+    for (size_t i = 0; i < n; i++, s += 4) {
+        unsigned a = s[3];
+        d[i] = a == 255 ? 0xFF000000u | (uint32_t)s[0] << 16 | (uint32_t)s[1] << 8 | s[2]
+             : (uint32_t)a << 24 | (uint32_t)(s[0] * a / 255) << 16 | (uint32_t)(s[1] * a / 255) << 8 | (uint32_t)(s[2] * a / 255);
+    }
+}
+TT const uint32_t *_tt_pm(_TtImage *g) {
+    size_t n = (size_t)g->w * g->h;
+    if (!g->pm || g->pm_src != g->px || g->pm_ver != g->ver || g->pm_n < n) {
+        if (g->pm_n < n) { free(g->pm); g->pm = (uint32_t *)malloc(n * 4); g->pm_n = g->pm ? n : 0; }
+        if (!g->pm) return NULL;
+        _tt_pm_fill(g->pm, g->px, n);
+        g->pm_src = g->px; g->pm_ver = g->ver;
+    }
+    return g->pm;
+}
+TT uint32_t _tt_dimpx(uint32_t v, unsigned keep) {
+    return (v & 0xFF000000u) | ((((v & 0xFF00FFu) * keep) >> 8) & 0xFF00FFu) | ((((v & 0xFF00u) * keep) >> 8) & 0xFF00u);
+}
+/* one ready-to-draw pixel onto one screen pixel (0xRRGGBB) */
+#define _TT_PUT(d, src) do {                                                           \
+    uint32_t v_ = (src);                                                               \
+    if (keep < 256) v_ = _tt_dimpx(v_, keep);                                          \
+    uint32_t a_ = v_ >> 24;                                                            \
+    if (a_ == 255) *(d) = (*(d) & 0xFF000000u) | (v_ & 0xFFFFFFu);                      \
+    else if (a_) {                                                                     \
+        uint32_t dv_ = *(d), na_ = 255 - a_;                                           \
+        *(d) = (dv_ & 0xFF000000u) + (v_ & 0xFFFFFFu)                                  \
+             + ((((dv_ & 0xFF00FFu) * na_) >> 8) & 0xFF00FFu)                          \
+             + ((((dv_ & 0xFF00u) * na_) >> 8) & 0xFF00u);                             \
+    }                                                                                  \
+} while (0)
+
 TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip, float dim) {
     int x0, y0, x1, y1;
-    unsigned keep = dim <= 0 ? 256 : dim >= 1 ? 0 : (unsigned)((1 - dim) * 256);   /* 256 = normal, 0 = black */
     if (!_tt_pic_box(g, cx, cy, sc, ang, &x0, &y0, &x1, &y1)) return;
     if (x1 > im->width) x1 = im->width;
     if (y1 > im->height) y1 = im->height;
-    float ca = _tt_cosd(ang), sa = _tt_sind(ang), inv = 1.0f / sc;
-    float hw = g->w / 2.0f, hh = g->h / 2.0f;
-    float dfx = ca * inv, dfy = sa * inv;                  /* how the picture position moves per screen pixel */
+    if (x1 <= x0 || y1 <= y0 || !g->px) return;
+    unsigned keep = dim <= 0 ? 256 : dim >= 1 ? 0 : (unsigned)((1 - dim) * 256);   /* 256 = normal, 0 = black */
     const int gw = g->w, gh = g->h;
+    const uint32_t *src = _tt_pm(g);
+    if (!src) return;
+    const double inv = 1.0 / sc;
+    float turned = ang - 360.0f * (int)(ang / 360.0f);
+    if (turned == 0) {                                           /* not turned: the fast way */
+        const int64_t step = (int64_t)(inv * 65536.0);
+        if (step <= 0) return;
+        const int64_t fx0 = (int64_t)(((x0 + 0.5 - cx) * inv + gw / 2.0) * 65536.0);
+        int lo = x0, hi = x1;                                    /* only the pixels that land on the picture */
+        if (fx0 < 0) lo = x0 + (int)((-fx0 + step - 1) / step);
+        int64_t room = ((int64_t)gw << 16) - fx0;
+        int count = room <= 0 ? 0 : (int)((room + step - 1) / step);
+        if (x0 + count < hi) hi = x0 + count;
+        if (hi <= lo) return;
+        const int64_t fxs = fx0 + (int64_t)(lo - x0) * step;
+        for (int py = y0; py < y1; py++) {
+            double fy = (py + 0.5 - cy) * inv + gh / 2.0;
+            if (fy < 0 || fy >= gh) continue;
+            const uint32_t *srow = src + (size_t)(int)fy * gw;
+            uint32_t *row = (uint32_t *)(im->data + (size_t)py * im->bytes_per_line);
+            int64_t fx = fxs;
+            if (flip) for (int px = lo; px < hi; px++, fx += step) _TT_PUT(row + px, srow[gw - 1 - (int)(fx >> 16)]);
+            else      for (int px = lo; px < hi; px++, fx += step) _TT_PUT(row + px, srow[fx >> 16]);
+        }
+        return;
+    }
+    double ca = _tt_cosd(ang), sa = _tt_sind(ang);               /* turned */
+    const int64_t dfx = (int64_t)(ca * inv * 65536.0), dfy = (int64_t)(sa * inv * 65536.0);
     for (int py = y0; py < y1; py++) {
-        uint32_t *row = (uint32_t *)(im->data + py * im->bytes_per_line);
-        float mx = x0 + 0.5f - cx, my = cy - (py + 0.5f);
-        float fx = (mx * ca + my * sa) * inv + hw + 4096;     /* +4096 so (int) rounds down */
-        float fy = (mx * sa - my * ca) * inv + hh + 4096;
+        uint32_t *row = (uint32_t *)(im->data + (size_t)py * im->bytes_per_line);
+        double mx = x0 + 0.5 - cx, my = cy - (py + 0.5);
+        int64_t fx = (int64_t)(((mx * ca + my * sa) * inv + gw / 2.0) * 65536.0);
+        int64_t fy = (int64_t)(((mx * sa - my * ca) * inv + gh / 2.0) * 65536.0);
         for (int px = x0; px < x1; px++, fx += dfx, fy += dfy) {
-            int ix = (int)fx - 4096, iy = (int)fy - 4096;
-            if ((unsigned)ix >= (unsigned)gw || (unsigned)iy >= (unsigned)gh) continue;
+            int64_t ix = fx >> 16, iy = fy >> 16;
+            if ((uint64_t)ix >= (uint64_t)gw || (uint64_t)iy >= (uint64_t)gh) continue;
             if (flip) ix = gw - 1 - ix;
-            const unsigned char *s = g->px + ((size_t)iy * gw + ix) * 4;
-            unsigned a = s[3];
-            if (!a) continue;
-            unsigned sr = s[0], sg = s[1], sb = s[2];
-            if (keep < 256) { sr = sr * keep >> 8; sg = sg * keep >> 8; sb = sb * keep >> 8; }
-            if (a == 255) { row[px] = (row[px] & 0xFF000000u) | sr << 16 | sg << 8 | sb; continue; }
-            uint32_t d = row[px];
-            unsigned na = 256 - a; a += 1;
-            unsigned dr = ((sr * a + ((d >> 16) & 255) * na) >> 8);
-            unsigned dg = ((sg * a + ((d >> 8) & 255) * na) >> 8);
-            unsigned db = ((sb * a + (d & 255) * na) >> 8);
-            row[px] = (d & 0xFF000000u) | dr << 16 | dg << 8 | db;
+            _TT_PUT(row + px, src[(size_t)iy * gw + ix]);
         }
     }
+}
+
+/* ---- shared memory with the X server (MIT-SHM): pictures don't have to go through a socket ---- */
+typedef struct { unsigned long shmseg; int shmid; char *shmaddr; int readOnly; } _TtShmInfo;
+static struct {
+    int tried, ok, err;
+    Bool (*Query)(Display *);
+    XImage *(*Create)(Display *, Visual *, unsigned, int, char *, _TtShmInfo *, unsigned, unsigned);
+    Bool (*Attach)(Display *, _TtShmInfo *);
+    Bool (*Detach)(Display *, _TtShmInfo *);
+    Bool (*Put)(Display *, Drawable, GC, XImage *, int, int, int, int, unsigned, unsigned, Bool);
+    Bool (*Get)(Display *, Drawable, XImage *, int, int, unsigned long);
+} _tt_shm;
+typedef struct { XImage *im; _TtShmInfo si; int shm; } _TtPix;
+
+TT int _tt_shm_oops(Display *d, XErrorEvent *e) { (void)d; (void)e; _tt_shm.err = 1; return 0; }
+TT int _tt_shm_ready(void) {
+    if (_tt_shm.tried) return _tt_shm.ok;
+    _tt_shm.tried = 1;
+    if (getenv("CRAYON_NO_SHM")) return 0;
+    void *h = dlopen("libXext.so.6", RTLD_NOW);
+    if (!h) return 0;
+    *(void **)&_tt_shm.Query = dlsym(h, "XShmQueryExtension");
+    *(void **)&_tt_shm.Create = dlsym(h, "XShmCreateImage");
+    *(void **)&_tt_shm.Attach = dlsym(h, "XShmAttach");
+    *(void **)&_tt_shm.Detach = dlsym(h, "XShmDetach");
+    *(void **)&_tt_shm.Put = dlsym(h, "XShmPutImage");
+    *(void **)&_tt_shm.Get = dlsym(h, "XShmGetImage");
+    _tt_shm.ok = _tt_shm.Query && _tt_shm.Create && _tt_shm.Attach && _tt_shm.Detach && _tt_shm.Put && _tt_shm.Get
+                 && _tt_shm.Query(_tt.dpy);
+    return _tt_shm.ok;
+}
+TT int _tt_pix_make(_TtPix *p, int w, int h) {
+    memset(p, 0, sizeof *p);
+    if (_tt_shm_ready()) {
+        p->im = _tt_shm.Create(_tt.dpy, _tt.vis, (unsigned)_tt.depth, ZPixmap, NULL, &p->si, (unsigned)w, (unsigned)h);
+        if (p->im && p->im->bits_per_pixel == 32) {
+            p->si.shmid = shmget(IPC_PRIVATE, (size_t)p->im->bytes_per_line * h, IPC_CREAT | 0600);
+            if (p->si.shmid >= 0) {
+                p->si.shmaddr = p->im->data = (char *)shmat(p->si.shmid, NULL, 0);
+                p->si.readOnly = False;
+                if (p->si.shmaddr != (char *)-1) {
+                    _tt_shm.err = 0;
+                    int (*old)(Display *, XErrorEvent *) = XSetErrorHandler(_tt_shm_oops);
+                    _tt_shm.Attach(_tt.dpy, &p->si);
+                    XSync(_tt.dpy, False);
+                    XSetErrorHandler(old);
+                    shmctl(p->si.shmid, IPC_RMID, NULL);          /* goes away by itself when we close */
+                    if (!_tt_shm.err) { p->shm = 1; return 1; }
+                    shmdt(p->si.shmaddr);
+                } else shmctl(p->si.shmid, IPC_RMID, NULL);
+            }
+            p->im->data = NULL;
+        }
+        if (p->im) XDestroyImage(p->im);
+        p->im = NULL;
+        _tt_shm.ok = 0;                                            /* e.g. a remote display: use the normal way */
+    }
+    p->im = XGetImage(_tt.dpy, _tt.canvas, 0, 0, (unsigned)w, (unsigned)h, AllPlanes, ZPixmap);
+    return p->im != NULL;
+}
+TT void _tt_pix_free(_TtPix *p) {
+    if (!p->im) return;
+    if (p->shm) { _tt_shm.Detach(_tt.dpy, &p->si); XSync(_tt.dpy, False); shmdt(p->si.shmaddr); p->im->data = NULL; }
+    XDestroyImage(p->im);
+    memset(p, 0, sizeof *p);
+}
+TT void _tt_pix_grab(_TtPix *p) {                                  /* copy the drawings into p */
+    if (p->shm) { _tt_shm.Get(_tt.dpy, _tt.canvas, p->im, 0, 0, AllPlanes); return; }
+    int w = p->im->width, h = p->im->height;
+    XDestroyImage(p->im);
+    p->im = XGetImage(_tt.dpy, _tt.canvas, 0, 0, (unsigned)w, (unsigned)h, AllPlanes, ZPixmap);
+}
+TT void _tt_pix_put(_TtPix *p, int x, int y, int w, int h) {
+    if (p->shm) _tt_shm.Put(_tt.dpy, _tt.buf, _tt.gc, p->im, x, y, x, y, (unsigned)w, (unsigned)h, False);
+    else XPutImage(_tt.dpy, _tt.buf, _tt.gc, p->im, x, y, x, y, (unsigned)w, (unsigned)h);
 }
 
 TT float _tt_pic_angle(_TtTurtle *t) { return t->upright ? 0 : t->heading; }
@@ -9217,7 +9365,7 @@ TT void _tt_refresh(void) {
     if (_tt.closed || !_tt.dpy) return;
     Display *d = _tt.dpy;
     _tt_layout();
-    XCopyArea(d, _tt.canvas, _tt.buf, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0);
+    int copied = 0;                                    /* the drawings go under everything */
 
     /* 1. turtles that are pictures */
     int need = 0;
@@ -9234,21 +9382,23 @@ TT void _tt_refresh(void) {
         }
         /* only touch the parts of the screen that pictures cover (in 32-pixel tiles).
          * base = our own copy of the drawings, so we never have to ask the X server for pixels */
-        static XImage *frame = NULL, *base = NULL;
+        static _TtPix fr, bs;                                    /* frame we draw into, base = the drawings */
         static unsigned char *tiles = NULL;
-        static int tcols = 0, trows = 0;
+        static int tcols = 0, trows = 0, pending = 0;
         enum { T = 32 };
-        if (!frame) {
-            frame = XGetImage(d, _tt.canvas, 0, 0, _tt.W, _tt.H, AllPlanes, ZPixmap);
+        if (!fr.im || fr.im->width != _tt.W || fr.im->height != _tt.H) {     /* first time, or new window size */
+            if (pending) { XSync(d, False); pending = 0; }
+            _tt_pix_free(&fr); _tt_pix_free(&bs);
+            _tt_pix_make(&fr, _tt.W, _tt.H);
+            _tt_pix_make(&bs, _tt.W, _tt.H);
             tcols = (_tt.W + T - 1) / T; trows = (_tt.H + T - 1) / T;
+            free(tiles);
             tiles = (unsigned char *)malloc((size_t)tcols * trows);
             _tt.canvas_dirty = 1;
         }
-        if (_tt.canvas_dirty || !base) {
-            if (base) XDestroyImage(base);
-            base = XGetImage(d, _tt.canvas, 0, 0, _tt.W, _tt.H, AllPlanes, ZPixmap);
-            _tt.canvas_dirty = 0;
-        }
+        if (pending) { XSync(d, False); pending = 0; }           /* the X server is done reading the last frame */
+        if (bs.im && _tt.canvas_dirty) { _tt_pix_grab(&bs); _tt.canvas_dirty = 0; }
+        XImage *frame = fr.im, *base = bs.im;
         if (frame && base && frame->bits_per_pixel == 32 && base->bits_per_pixel == 32 && tiles) {
             memset(tiles, 0, (size_t)tcols * trows);
             long covered = 0;
@@ -9262,9 +9412,11 @@ TT void _tt_refresh(void) {
                         if (!tiles[r * tcols + c]) { tiles[r * tcols + c] = 1; covered++; }
             }
             int whole = covered * 10 > (long)tcols * trows * 6;        /* most of the screen: just do it all */
-            int span[2048][3], nspan = 0;
+            if (!whole || !covered) { XCopyArea(d, _tt.canvas, _tt.buf, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0); copied = 1; }
+            static int span[4096][3];
+            int nspan = 0;
             if (whole) { span[0][0] = 0; span[0][1] = 0; span[0][2] = _tt.W; nspan = 1; }
-            else for (int r = 0; r < trows && nspan < 2048; r++) {
+            else for (int r = 0; r < trows && nspan < 4096; r++) {
                 int lo = -1, hi = -1;
                 for (int c = 0; c < tcols; c++) if (tiles[r * tcols + c]) { if (lo < 0) lo = c; hi = c; }
                 if (lo >= 0) { span[nspan][0] = r; span[nspan][1] = lo * T; span[nspan][2] = (hi + 1) * T; nspan++; }
@@ -9272,8 +9424,10 @@ TT void _tt_refresh(void) {
             for (int k = 0; k < nspan; k++) {                         /* fresh drawings under the pictures */
                 int y = whole ? 0 : span[k][0] * T, h = whole ? _tt.H : (y + T > _tt.H ? _tt.H - y : T);
                 int x = span[k][1], w = (span[k][2] > _tt.W ? _tt.W : span[k][2]) - x;
-                for (int yy = y; yy < y + h; yy++)
-                    memcpy(frame->data + yy * frame->bytes_per_line + x * 4, base->data + yy * base->bytes_per_line + x * 4, (size_t)w * 4);
+                if (frame->bytes_per_line == base->bytes_per_line && x == 0 && w == _tt.W)
+                    memcpy(frame->data + (size_t)y * frame->bytes_per_line, base->data + (size_t)y * base->bytes_per_line, (size_t)h * frame->bytes_per_line);
+                else for (int yy = y; yy < y + h; yy++)
+                    memcpy(frame->data + (size_t)yy * frame->bytes_per_line + x * 4, base->data + (size_t)yy * base->bytes_per_line + x * 4, (size_t)w * 4);
             }
             if (nspan) {
                 static int order[_TT_MAXT];                           /* bottom layer first, top layer last */
@@ -9288,11 +9442,14 @@ TT void _tt_refresh(void) {
                 for (int k = 0; k < nspan; k++) {
                     int y = whole ? 0 : span[k][0] * T, h = whole ? _tt.H : (y + T > _tt.H ? _tt.H - y : T);
                     int x = span[k][1], w = (span[k][2] > _tt.W ? _tt.W : span[k][2]) - x;
-                    XPutImage(d, _tt.buf, _tt.gc, frame, x, y, x, y, (unsigned)w, (unsigned)h);
+                    _tt_pix_put(&fr, x, y, w, h);
                 }
+                pending = fr.shm;
             }
         }
     }
+
+    if (!copied) XCopyArea(d, _tt.canvas, _tt.buf, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0);
 
     /* 2. turtles that are arrows */
     XSetLineAttributes(d, _tt.gc, 1, LineSolid, CapButt, JoinMiter);
@@ -9397,7 +9554,8 @@ TT void _tt_refresh(void) {
     XFlush(d);
 }
 
-TT void _tt_show(void) { if (!_tt.loop_mode) _tt_refresh(); }
+static int _tt_hold = 0;                                   /* >0: making lots of things, redraw once at the end */
+TT void _tt_show(void) { if (!_tt.loop_mode && !_tt_hold) _tt_refresh(); }
 
 /* ============================================================ */
 /* WINDOW                                                       */
@@ -9864,7 +10022,7 @@ TT int _tt_text_image(const char *s, int slot) {
     } else free(_tt.img[i].px);
     _TtImage *g = &_tt.img[i];
     snprintf(g->name, sizeof g->name, "\x01text%d", i);
-    g->w = w; g->h = h;
+    g->w = w; g->h = h; g->ver++;
     g->px = (unsigned char *)calloc((size_t)w * h * 4, 1);
     if (im[0] && im[1] && im[0]->bits_per_pixel == 32) {
         for (int y = 0; y < h; y++)
@@ -11107,11 +11265,14 @@ TT void tank_controls(void) { _tt_game.tank = 1; if (_tt_game.player >= 0) _tt.t
 TT void _tt_spawn3(const char *file, int how_many, double size) {
     _tt_check();
     _tt_game.active = 1;
+    _tt_hold++;                                               /* draw the screen once, not once per thing */
     for (int i = 0; i < how_many; i++) {
         float x, y;
         _tt_random_spot(&x, &y);
         _tt_add_image4(file, x, y, size);
     }
+    _tt_hold--;
+    _tt_show();
 }
 TT void _tt_spawn2(const char *file, int how_many) { _tt_spawn3(file, how_many, 1); }
 #define spawn(...) _TT_PICK3(__VA_ARGS__, _tt_spawn3, _tt_spawn2, 0)(__VA_ARGS__)
@@ -11479,5 +11640,9 @@ TT void play(void) {
     while (update()) _tt_game_step();
 }
 TT void _tt_game_autoplay(void) { if (_tt_game.active && _tt.dpy && !_tt.closed) play(); }
+
+#ifdef _TT_POP_OPTIMIZE
+#pragma GCC pop_options
+#endif
 
 #endif

@@ -749,9 +749,26 @@ gcc search.c -o search && ./search
 
 ## Speed
 
-crayon only redraws the parts of the window that pictures cover, and keeps its own copy of your drawings.
-On a 1280×720 window: 1 moving picture runs at ~1200 frames/sec, 300 at ~245, 1000 at ~100.
-(`forever` and games are capped at 60 fps so they don't eat your CPU.) Up to 1024 things on screen.
+Fast even with plain `gcc main.c` — crayon turns its own optimizations on, so you don't need `-O2`.
+It shares picture memory straight with the X server (MIT-SHM), only redraws the parts of the window
+that pictures cover, and keeps a ready-to-draw copy of every picture.
+
+Same scenes, same pictures, 1280×720 window, milliseconds per frame (lower = faster):
+
+| Scene | crayon.h | SDL2 (OpenGL renderer) | SDL2 (software) |
+|---|---|---|---|
+| empty frame | **0.48** | 0.97 | 6.2 |
+| 300 sprites moving | **2.4** | 2.3 | 7.3 |
+| 300 sprites rotating | **2.4** | 2.1 | 8.0 |
+| 300 sprites 3x size | **4.9** | 6.1 | 13.9 |
+| fullscreen picture + 50 sprites | **3.7** | 5.0 | 10.7 |
+
+Measured on a machine with no graphics card, so SDL's OpenGL ran on the CPU too.
+With a real GPU, SDL's OpenGL renderer will win on scenes with thousands of big sprites.
+For normal crayon programs (a game with some pictures, text, buttons) you'll be at 60 fps with room to spare.
+
+`spawn("coin.png", 300)` takes 0.2 ms. `forever` and games are capped at 60 fps so they don't eat your CPU.
+Up to 1024 things on screen.
 
 ## Requirements
 
