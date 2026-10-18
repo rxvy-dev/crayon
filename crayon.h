@@ -36,6 +36,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <strings.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <stddef.h>
@@ -10751,45 +10752,52 @@ TT void _tt_submit(void) {
 /* ============================================================ */
 
 /* ============================================================ */
-/* TERMINAL: a text input that looks and works like a real CLI  */
+/* TERMINAL: a box you type commands into, like a real one      */
 /*                                                              */
-/*   terminal();                       the whole window is a terminal  */
-/*   terminal(-350, -200, 350, 200);   or a box (two corners, like box()) */
-/*   cli_print("{green}Welcome!");     print a line (colors, %d, \n all work) */
-/*   const char *cmd = cli("$ ");      waits for a command and gives it back */
-/*   cli_clear();                      wipe it                      */
-/*   terminal_color("black", "white", "lime");   background, text, prompt */
-/*   cli_textsize(20);                 bigger letters (16 is normal) */
+/*   void hi(void) { terminal_print("hello!"); }                */
 /*                                                              */
-/*   Up/Down = old commands, Left/Right/Home/End to move,       */
-/*   Ctrl+L clear, Ctrl+U clear the line, Ctrl+C cancel,        */
-/*   PageUp/PageDown or the mouse wheel to scroll.              */
-/*   word(0), word(1), rest(1), command("ls") work on the last command. */
+/*   terminal("$ ");             the whole window, with a "$ " prompt */
+/*   on_command("hi", hi);       typing  hi  runs hi()          */
+/*                                                              */
+/*   That's it. "help" and "clear" work by themselves, Tab      */
+/*   finishes a command, Up/Down brings back old ones.          */
+/*   Inside your function: word(1) rest(1) number(1) = what was typed after the command. */
+/*                                                              */
+/*   terminal(-300, -200, 300, 200, "$ ");   a box instead (two corners, like box()) */
+/*   terminal_print("{red}oops %d", n);      write a line (colors, %d, \n)  */
+/*   terminal_input("Name? ")                wait for one line and give it back */
+/*   terminal_clear();   terminal_color("black", "white", "lime");   terminal_textsize(20); */
+/*   on_command("*", fn);                    runs for anything that isn't a command */
 /* ============================================================ */
 #define _TT_TLINES 500
 #define _TT_THIST 100
+#define _TT_TCMDS 64
 static struct {
-    int on, full, reading, done, cur, hpos, nhist, size, scroll, first, n;
+    int on, full, reading, waiting, done, cur, hpos, nhist, size, scroll, first, n, ncmd;
     float x1, y1, x2, y2;
     unsigned long bg, fg, pc;
     char *lines[_TT_TLINES];
     char prompt[128], input[512], hist[_TT_THIST][512], got[512];
-} _tt_term = { 0, 1, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0x0C0C0C, 0xE6E6E6, 0x4EE07A, {0}, "", "", {{0}}, "" };
+    char cmd[_TT_TCMDS][32]; TtFn fn[_TT_TCMDS]; TtFn any;
+} _tt_term = { 0, 1, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0x0C0C0C, 0xE6E6E6, 0x4EE07A,
+               {0}, "> ", "", {{0}}, "", {{0}}, {0}, 0 };
 
-TT void _tt_term_on(void) {
-    _tt_check();
-    _tt_term.on = 1;
-}
-/* cli_textsize(20);   size of the terminal's letters (16 is normal) */
-TT void cli_textsize(int n) { _tt_term.size = n < 8 ? 8 : n > 60 ? 60 : n; _tt_show(); }
-TT void _tt_terminal0(void) { _tt_term_on(); _tt_term.full = 1; _tt_show(); }
-TT void _tt_terminal4(double x1, double y1, double x2, double y2) {
-    _tt_term_on(); _tt_term.full = 0;
+TT void _tt_term_on(void) { _tt_check(); _tt_term.on = 1; }
+TT int _tt_term_live(void) { return _tt_term.ncmd > 0 || _tt_term.any; }   /* takes commands by itself */
+TT void _tt_term_prompt(const char *p) { if (p) snprintf(_tt_term.prompt, sizeof _tt_term.prompt, "%s", p); }
+TT void _tt_terminal5(double x1, double y1, double x2, double y2, const char *prompt) {
+    _tt_term_on(); _tt_term.full = 0; _tt_term_prompt(prompt);
     _tt_term.x1 = (float)(x1 < x2 ? x1 : x2); _tt_term.x2 = (float)(x1 < x2 ? x2 : x1);
     _tt_term.y1 = (float)(y1 < y2 ? y1 : y2); _tt_term.y2 = (float)(y1 < y2 ? y2 : y1);
     _tt_show();
 }
-#define terminal(...) _TT_PICK5(_, ##__VA_ARGS__, _tt_terminal4, _tt_terminal_needs_4_numbers, _tt_terminal_needs_4_numbers, _tt_terminal_needs_4_numbers, _tt_terminal0)(__VA_ARGS__)
+TT void _tt_terminal4(double x1, double y1, double x2, double y2) { _tt_terminal5(x1, y1, x2, y2, NULL); }
+TT void _tt_terminal1(const char *prompt) { _tt_term_on(); _tt_term.full = 1; _tt_term_prompt(prompt); _tt_show(); }
+TT void _tt_terminal0(void) { _tt_terminal1(NULL); }
+#define terminal(...) _TT_PICK6(_, ##__VA_ARGS__, _tt_terminal5, _tt_terminal4, _tt_terminal_needs_4_numbers, _tt_terminal_needs_4_numbers, _tt_terminal1, _tt_terminal0)(__VA_ARGS__)
+
+/* terminal_textsize(20);   size of the terminal's letters (16 is normal) */
+TT void terminal_textsize(int n) { _tt_term.size = n < 8 ? 8 : n > 60 ? 60 : n; _tt_show(); }
 TT void _tt_terminal_color3(unsigned long bg, unsigned long fg, unsigned long prompt) {
     _tt_term.bg = bg; _tt_term.fg = fg; _tt_term.pc = prompt; _tt_show();
 }
@@ -10804,47 +10812,133 @@ TT void _tt_term_add(const char *line) {
     if (_tt_term.n < _TT_TLINES) _tt_term.lines[(_tt_term.first + _tt_term.n++) % _TT_TLINES] = copy;
     else { free(_tt_term.lines[_tt_term.first]); _tt_term.lines[_tt_term.first] = copy; _tt_term.first = (_tt_term.first + 1) % _TT_TLINES; }
 }
-TT void cli_print(const char *fmt, ...) {
+TT void terminal_print(const char *fmt, ...) {
     char b[4096]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
     _tt_term_on();
+    size_t n = strlen(b);
+    while (n && b[n - 1] == '\n') b[--n] = 0;                  /* no empty line at the end (like run_output()) */
     _tt_term_add(b);
     _tt_term.scroll = 0;
     _tt_show();
 }
-TT void cli_clear(void) {
+TT void terminal_clear(void) {
     for (int i = 0; i < _tt_term.n; i++) free(_tt_term.lines[(_tt_term.first + i) % _TT_TLINES]);
     _tt_term.n = 0; _tt_term.first = 0; _tt_term.scroll = 0;
     _tt_show();
 }
-TT void terminal_off(void) { _tt_term.on = 0; _tt_show(); }
+TT void terminal_off(void) { _tt_term.on = 0; _tt_term.reading = 0; _tt_show(); }
 
-TT const char *cli(const char *prompt) {
-    _tt_term_on();
-    if (_tt.closed) return "";
-    snprintf(_tt_term.prompt, sizeof _tt_term.prompt, "%s", prompt ? prompt : "> ");
-    _tt_term.input[0] = 0; _tt_term.cur = 0; _tt_term.hpos = _tt_term.nhist; _tt_term.scroll = 0;
-    int lm = _tt.loop_mode; _tt.loop_mode = 0;
-    _tt.focus = 0; _tt.submitted = 0;
-    _tt_term.reading = 1; _tt_term.done = 0;
-    _tt_refresh();
-    while (!_tt_term.done) _tt_wait_tick();
-    _tt_term.reading = 0;
-    char line[1024];
-    snprintf(line, sizeof line, "{#%06lx}%s{#%06lx}%s", _tt_term.pc, _tt_term.prompt, _tt_term.fg, _tt_term.input);
+/* the line you typed goes up into the terminal and into the history */
+TT void _tt_term_commit(const char *end, int remember) {
+    char line[1100];
+    snprintf(line, sizeof line, "{#%06lx}%s{#%06lx}%s%s", _tt_term.pc, _tt_term.prompt, _tt_term.fg, _tt_term.input, end);
     _tt_term_add(line);
-    if (_tt_term.input[0] && (!_tt_term.nhist || strcmp(_tt_term.hist[(_tt_term.nhist - 1) % _TT_THIST], _tt_term.input))) {
+    if (remember && !end[0] && _tt_term.input[0] && (!_tt_term.nhist || strcmp(_tt_term.hist[_tt_term.nhist - 1], _tt_term.input))) {
         if (_tt_term.nhist >= _TT_THIST) {                   /* forget the oldest */
             memmove(_tt_term.hist[0], _tt_term.hist[1], sizeof _tt_term.hist - sizeof _tt_term.hist[0]);
             _tt_term.nhist = _TT_THIST - 1;
         }
         snprintf(_tt_term.hist[_tt_term.nhist++], sizeof _tt_term.hist[0], "%s", _tt_term.input);
     }
-    snprintf(_tt.entry, sizeof _tt.entry, "%s", _tt_term.input);   /* so word(), rest(), command() work */
+    _tt_term.hpos = _tt_term.nhist;
+    _tt_term.scroll = 0;
+}
+
+/* on_command("hi", hi);    typing  hi  (or  hi anything)  runs hi()
+ * on_command("*", fn);     runs for anything that isn't one of your commands */
+TT void on_command(const char *name, TtFn fn) {
+    _tt_term_on();
+    if (!strcmp(name, "*")) _tt_term.any = fn;
+    else {
+        int i;
+        for (i = 0; i < _tt_term.ncmd && !_tt_ieq(_tt_term.cmd[i], name); i++) {}
+        if (i >= _TT_TCMDS) return;
+        snprintf(_tt_term.cmd[i], sizeof _tt_term.cmd[0], "%s", name);
+        _tt_term.fn[i] = fn;
+        if (i == _tt_term.ncmd) _tt_term.ncmd++;
+    }
+    if (!_tt_term.waiting) _tt_term.reading = 1;
+    _tt_show();
+}
+TT int _tt_term_cmd(const char *name) {
+    for (int i = 0; i < _tt_term.ncmd; i++) if (_tt_ieq(_tt_term.cmd[i], name)) return i;
+    return -1;
+}
+/* Enter in a terminal that takes commands by itself */
+TT void _tt_term_run(void) {
+    _tt_term_commit("", 1);
+    snprintf(_tt.entry, sizeof _tt.entry, "%.*s", (int)sizeof _tt.entry - 1, _tt_term.input);       /* so word(), rest(), number() work */
+    _tt_term.input[0] = 0; _tt_term.cur = 0;
+    const char *w = word(0);
+    if (!w[0]) return;
+    int i = _tt_term_cmd(w);
+    int keep = _tt.cur, ls = _tt.submitted;
+    _tt.submitted = 1;
+    if (i >= 0) { if (_tt_term.fn[i]) _tt_term.fn[i](); }
+    else if (_tt_ieq(w, "help")) {
+        char b[2048] = "";
+        for (int k = 0; k < _tt_term.ncmd; k++) { strcat(b, _tt_term.cmd[k]); strcat(b, "  "); }
+        terminal_print("{#%06lx}commands:{#%06lx}  %s%s%s", _tt_term.pc, _tt_term.fg, b,
+                       _tt_term_cmd("help") < 0 ? "help  " : "", _tt_term_cmd("clear") < 0 ? "clear" : "");
+    }
+    else if (_tt_ieq(w, "clear")) terminal_clear();
+    else if (_tt_term.any) _tt_term.any();
+    else terminal_print("{#E74C3C}%s: command not found {#888888}(type help)", w);
+    _tt.submitted = ls; _tt.cur = keep;
+}
+
+/* const char *name = terminal_input("Name? ");   waits for one line and gives it back */
+TT const char *_tt_terminal_input1(const char *prompt) {
+    _tt_term_on();
+    if (_tt.closed) return "";
+    char old[128]; snprintf(old, sizeof old, "%s", _tt_term.prompt);
+    _tt_term_prompt(prompt);
+    char keep_in[512]; snprintf(keep_in, sizeof keep_in, "%s", _tt_term.input);   /* if it was in the middle of a command */
+    _tt_term.input[0] = 0; _tt_term.cur = 0; _tt_term.hpos = _tt_term.nhist; _tt_term.scroll = 0;
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    _tt.focus = 0; _tt.submitted = 0;
+    _tt_term.waiting = 1; _tt_term.reading = 1; _tt_term.done = 0;
+    _tt_refresh();
+    while (!_tt_term.done) _tt_wait_tick();
+    _tt_term.waiting = 0;
+    _tt_term_commit("", 0);                                     /* answers don't go in the Up-arrow history */
+    snprintf(_tt.entry, sizeof _tt.entry, "%.*s", (int)sizeof _tt.entry - 1, _tt_term.input);
     snprintf(_tt_term.got, sizeof _tt_term.got, "%s", _tt_term.input);
+    snprintf(_tt_term.input, sizeof _tt_term.input, "%s", keep_in); _tt_term.cur = (int)strlen(keep_in);
+    snprintf(_tt_term.prompt, sizeof _tt_term.prompt, "%s", old);
+    _tt_term.reading = _tt_term_live();
     _tt.submitted = 1;
     _tt.loop_mode = lm;
     _tt_refresh();
     return _tt_term.got;
+}
+TT const char *_tt_terminal_input0(void) { return _tt_terminal_input1(NULL); }
+#define terminal_input(...) _TT_PICK2(_, ##__VA_ARGS__, _tt_terminal_input1, _tt_terminal_input0)(__VA_ARGS__)
+
+/* short names, same thing */
+#define cli(...) terminal_input(__VA_ARGS__)
+#define cli_print terminal_print
+#define cli_clear terminal_clear
+#define cli_textsize terminal_textsize
+
+/* Tab: finish the command name */
+TT void _tt_term_tab(void) {
+    char *in = _tt_term.input;
+    if (strchr(in, ' ')) return;
+    const char *all[_TT_TCMDS + 2]; int n = 0;
+    for (int i = 0; i < _tt_term.ncmd; i++) all[n++] = _tt_term.cmd[i];
+    if (_tt_term_cmd("help") < 0) all[n++] = "help";
+    if (_tt_term_cmd("clear") < 0) all[n++] = "clear";
+    const char *hit[_TT_TCMDS + 2]; int nh = 0;
+    size_t len = strlen(in);
+    for (int i = 0; i < n; i++) if (!strncasecmp(all[i], in, len)) hit[nh++] = all[i];
+    if (nh == 1) { snprintf(in, sizeof _tt_term.input, "%s ", hit[0]); _tt_term.cur = (int)strlen(in); }
+    else if (nh > 1) {
+        char b[2048] = "";
+        for (int i = 0; i < nh; i++) { strcat(b, hit[i]); strcat(b, "  "); }
+        _tt_term_commit("", 0);
+        terminal_print("%s", b);
+    }
 }
 
 TT void _tt_term_key(XKeyEvent *k, KeySym ks) {
@@ -10852,7 +10946,11 @@ TT void _tt_term_key(XKeyEvent *k, KeySym ks) {
     int n = XLookupString(k, chars, sizeof chars - 1, &sym, NULL);
     char *in = _tt_term.input;
     int len = (int)strlen(in), ctrl = (k->state & ControlMask) != 0;
-    if (ks == XK_Return || ks == XK_KP_Enter) _tt_term.done = 1;
+    if (ks == XK_Return || ks == XK_KP_Enter) {
+        if (_tt_term.waiting) _tt_term.done = 1;
+        else _tt_term_run();
+    }
+    else if (ks == XK_Tab) _tt_term_tab();
     else if (ks == XK_BackSpace) { if (_tt_term.cur > 0) { memmove(in + _tt_term.cur - 1, in + _tt_term.cur, (size_t)(len - _tt_term.cur + 1)); _tt_term.cur--; } }
     else if (ks == XK_Delete) { if (_tt_term.cur < len) memmove(in + _tt_term.cur, in + _tt_term.cur + 1, (size_t)(len - _tt_term.cur)); }
     else if (ks == XK_Left) { if (_tt_term.cur > 0) _tt_term.cur--; }
@@ -10871,14 +10969,9 @@ TT void _tt_term_key(XKeyEvent *k, KeySym ks) {
     }
     else if (ks == XK_Page_Up) { _tt_term.scroll += 8; return; }
     else if (ks == XK_Page_Down) { _tt_term.scroll -= 8; if (_tt_term.scroll < 0) _tt_term.scroll = 0; return; }
-    else if (ctrl && ks == 'l') { cli_clear(); }
+    else if (ctrl && ks == 'l') { terminal_clear(); }
     else if (ctrl && ks == 'u') { in[0] = 0; _tt_term.cur = 0; }
-    else if (ctrl && ks == 'c') {
-        char line[1024];
-        snprintf(line, sizeof line, "{#%06lx}%s{#%06lx}%s^C", _tt_term.pc, _tt_term.prompt, _tt_term.fg, in);
-        _tt_term_add(line);
-        in[0] = 0; _tt_term.cur = 0;
-    }
+    else if (ctrl && ks == 'c') { _tt_term_commit("^C", 0); in[0] = 0; _tt_term.cur = 0; }
     else if (!ctrl) for (int i = 0; i < n; i++)
         if (chars[i] >= 32 && chars[i] < 127 && len < (int)sizeof _tt_term.input - 1) {
             memmove(in + _tt_term.cur + 1, in + _tt_term.cur, (size_t)(len - _tt_term.cur + 1));
@@ -10889,8 +10982,8 @@ TT void _tt_term_key(XKeyEvent *k, KeySym ks) {
 
 /* cuts text with {tags} into rows of at most `cols` letters. Each row starts with the colors that were on.
  * rows can be NULL to just count them */
-TT int _tt_wrap(const char *s, int cols, char (*rows)[600], int maxrows) {
-    int nr = 0, n = 0, vis = 0;
+TT int _tt_wrap(const char *s, int cols, char (*rows)[600], int maxrows, int words) {
+    int nr = 0, n = 0, vis = 0, soft = 0, after_space = 1;
     char cfx[32] = "", ccol[32] = "";
 #define _TT_ROW_END() do { if (rows && nr < maxrows) rows[nr][n] = 0; nr++; n = 0; vis = 0; \
         if (rows && nr < maxrows) n = snprintf(rows[nr], 600, "%s%s", cfx, ccol); } while (0)
@@ -10902,8 +10995,19 @@ TT int _tt_wrap(const char *s, int cols, char (*rows)[600], int maxrows) {
             if (rows && nr < maxrows && n + len < 590) { memcpy(rows[nr] + n, p, (size_t)len); n += len; }
             p += len; continue;
         }
-        if (*p == '\n') { _TT_ROW_END(); p++; continue; }
-        if (vis >= cols) _TT_ROW_END();
+        if (*p == '\n') { _TT_ROW_END(); soft = 0; p++; continue; }
+        if (words && *p == ' ' && vis == 0 && soft) { p++; soft = 0; continue; }     /* no space at the start of a wrapped row */
+        if (words && *p != ' ' && after_space && vis > 0) {                         /* a new word: does it still fit? */
+            int wl = 0;
+            for (const char *q = p; *q && *q != ' ' && *q != '\n';) {
+                int tl; if (_tt_tag(q, &tl, NULL)) { q += tl; continue; }
+                int ql; _tt_utf8((const unsigned char *)q, &ql); q += ql > 0 ? ql : 1; wl++;
+            }
+            if (vis + wl > cols && wl <= cols) { _TT_ROW_END(); soft = 1; }
+        }
+        if (vis >= cols) { _TT_ROW_END(); soft = 1; if (words && *p == ' ') { p++; soft = 0; continue; } }
+        after_space = *p == ' ';
+        soft = 0;
         int clen; _tt_utf8((const unsigned char *)p, &clen);
         if (clen < 1) clen = 1;
         if (rows && nr < maxrows && n + clen < 590) { memcpy(rows[nr] + n, p, (size_t)clen); n += clen; }
@@ -10936,9 +11040,9 @@ TT void _tt_draw_term(Drawable d) {
     }
     int cidx = pv + _tt_term.cur;
     int in_rows = 0;
-    if (_tt_term.reading) { in_rows = _tt_wrap(inl, cols, NULL, 0); if (cidx / cols + 1 > in_rows) in_rows = cidx / cols + 1; }
+    if (_tt_term.reading) { in_rows = _tt_wrap(inl, cols, NULL, 0, 0); if (cidx / cols + 1 > in_rows) in_rows = cidx / cols + 1; }
     int total = in_rows;
-    for (int i = 0; i < _tt_term.n; i++) total += _tt_wrap(_tt_term.lines[(_tt_term.first + i) % _TT_TLINES], cols, NULL, 0);
+    for (int i = 0; i < _tt_term.n; i++) total += _tt_wrap(_tt_term.lines[(_tt_term.first + i) % _TT_TLINES], cols, NULL, 0, 1);
     int maxscroll = total > nrows ? total - nrows : 0;
     if (_tt_term.scroll > maxscroll) _tt_term.scroll = maxscroll;
     int top = total > nrows ? total - nrows - _tt_term.scroll : 0;      /* first row we can see */
@@ -10949,10 +11053,11 @@ TT void _tt_draw_term(Drawable d) {
         if (i < _tt_term.n) line = _tt_term.lines[(_tt_term.first + i) % _TT_TLINES];
         else if (_tt_term.reading) line = inl;
         else break;
-        int nr = _tt_wrap(line, cols, NULL, 0);
+        int words = i < _tt_term.n;                             /* the line you type wraps letter by letter */
+        int nr = _tt_wrap(line, cols, NULL, 0, words);
         if (r + nr <= top) { r += nr; continue; }               /* scrolled away above */
         if (r >= top + nrows) break;
-        int got = _tt_wrap(line, cols, rows, 64);
+        int got = _tt_wrap(line, cols, rows, 64, words);
         for (int k = 0; k < got && k < 64; k++, r++)
             if (r >= top && r < top + nrows) _tt_tagged(d, f, x + pad, y + pad + (r - top) * lh + f->asc, _tt_term.fg, rows[k], 1);
         if (i == _tt_term.n) {                                  /* blinking block cursor */
@@ -11321,13 +11426,13 @@ TT int _tt_handle(XEvent *e) {
                 stop_sounds();
                 return 0;
             }
-        if ((ks == XK_Return || ks == XK_KP_Enter) && _tt_tb_visible() && !_tt_term.reading) {
+        if ((ks == XK_Return || ks == XK_KP_Enter) && _tt_tb_visible() && !(_tt_term.on && _tt_term.reading)) {
             _tt.focus = 1;
             memset(_tt.down, 0, sizeof _tt.down);
             if (!_tt.loop_mode) _tt_refresh();
             break;
         }
-        if (_tt_term.reading) {                                     /* typing into the terminal */
+        if (_tt_term.on && _tt_term.reading) {                      /* typing into the terminal */
             _tt_term_key(&e->xkey, ks);
             if (!_tt.loop_mode) _tt_refresh();
             break;
@@ -11389,7 +11494,7 @@ TT void done(void) {
     _tt.loop_mode = 0;
     _tt_refresh();
     for (;;) {
-        while (_tt.dpy && !XPending(_tt.dpy) && (_tt.focus || _tt_animating())) {   /* cursor blink, gliding things */
+        while (_tt.dpy && !XPending(_tt.dpy) && (_tt.focus || (_tt_term.on && _tt_term.reading) || _tt_animating())) {   /* cursor blink, gliding things */
             struct timespec t = { 0, _tt_animating() ? 15000000 : 50000000 }; nanosleep(&t, NULL);
             _tt_refresh();
         }
@@ -11630,7 +11735,7 @@ TT void new_screen(void) {
     _tt_ld.on = _tt_ld.timed = 0;
     for (int i = 0; i < _tt_ui.n; i++) _tt_ui.c[i].used = 0;
     _tt_ui.n = 0; _tt_ui.open = _tt_ui.drag = -1;
-    _tt_term.on = 0;
+    _tt_term.on = 0; _tt_term.reading = 0; _tt_term.ncmd = 0; _tt_term.any = NULL;
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
     XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
     _tt_show();

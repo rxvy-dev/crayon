@@ -528,62 +528,102 @@ input_color("#1b1b1b", "white", "red"); // + border color
 
 <img src="screenshots/commands.png" width="520">
 
-## Terminal (a real CLI)
+## Terminal (type commands like a real one)
 
-A text input that looks and works like a terminal: prompt, block cursor, history, scrolling.
+**Step 1:** write a function for each command. **Step 2:** make the terminal. **Step 3:** connect them with `on_command`.
+No loops.
 
 ```c
-terminal();                                   // the whole window is a terminal
-cli_print("{lime}Welcome!{white} type help");   // print a line (colors, %d, \n work)
+#include "crayon.h"
 
-while (1) {
-    const char *cmd = cli("{lime}rxvy@arch{white}:~$ ");   // waits for a command
-    if (same(cmd, "hi"))   cli_print("{party}hello!!");
-    if (same(cmd, "ls"))   { run("ls"); cli_print("%s", run_output()); }
-    if (command("echo"))   cli_print("%s", rest(1));     // word(), rest(), command() work too
-    if (same(cmd, "clear")) cli_clear();
+void hi(void)   { terminal_print("hello!"); }
+void echo(void) { terminal_print("%s", rest(1)); }        // rest(1) = everything after "echo"
+void ls(void)   { run("ls"); terminal_print("%s", run_output()); }
+
+int main(void) {
+    window(800, 500);
+    terminal("$ ");                        // the whole window is a terminal, with a "$ " prompt
+    terminal_print("type help");
+
+    on_command("hi", hi);                  // typing  hi    runs hi()
+    on_command("echo", echo);              // typing  echo yo dude  prints "yo dude"
+    on_command("ls", ls);
 }
 ```
 
+You get these for free:
+
+| | |
+|---|---|
+| `help` | lists your commands |
+| `clear` or Ctrl+L | wipes the screen |
+| Tab | finishes a command (`ec` → `echo`) |
+| Up / Down | your old commands |
+| Left / Right / Home / End | move the cursor |
+| Ctrl+U / Ctrl+C | clear the line / cancel |
+| PageUp / PageDown / mouse wheel | scroll back |
+| a wrong command | `lol: command not found (type help)` |
+
+Inside a command function, these tell you what was typed after the command name:
+
 ```c
-terminal(80, -220, 380, 160);                 // or just a box (two corners, like box())
-terminal_color("black", "white", "lime");     // background, text, prompt
-cli_textsize(20);                             // bigger letters (16 is normal)
+word(1)      // the 1st word after the command      give apple   ->  "apple"
+number(1)    // that word as a number               add 2 3      ->  number(1) = 2, number(2) = 3
+rest(1)      // everything after the command        echo yo dude ->  "yo dude"
 ```
 
-**Keys:** Up/Down = old commands, Left/Right/Home/End = move, Ctrl+L = clear, Ctrl+U = clear the line,
-Ctrl+C = cancel, PageUp/PageDown or the mouse wheel = scroll.
+`number()` gives a decimal number, so print it with `%g` (not `%d`): `terminal_print("%g", number(1) + number(2));`
+
+More:
+
+```c
+terminal(-300, -200, 300, 200, "$ ");          // a terminal BOX instead (two corners, like box())
+terminal_print("{red}error:{white} %d files", n);   // colors, numbers and \n work
+const char *name = terminal_input("Name? ");   // ask something and wait for the answer
+terminal_color("black", "white", "lime");      // background, text, prompt
+terminal_textsize(20);                          // bigger letters (16 is normal)
+terminal_clear();
+on_command("*", fn);                            // runs for anything that isn't one of your commands
+```
 
 <img src="screenshots/terminal.png" width="520">
 
 ## Sliders, checkboxes, switches and dropdowns
 
-Each one remembers its value by its **name**, so you can read it from anywhere. No loops needed:
+Make them with a **name**. Later, read them with that name. No loops.
 
 ```c
-slider("Volume", 0, 100, -180, 120);          // name, min, max, x, y
-slider("Volume", 0, 100, -180, 120, 40);      // ...starting at 40
+slider("Volume", 0, 100, -180, 120);              // name, min, max, x, y
 checkbox("Dark mode", -230, 50);
-toggle("Music", -230, 0);                     // an on/off switch
-dropdown("Color", "Red|Green|Blue", -180, -80);
-
-void save(void) {
-    int vol = value("Volume");                // the number
-    if (value("Dark mode")) background("black");   // checkbox / toggle: 1 or 0
-    const char *c = choice("Color");          // the words picked in a dropdown
-}
-button("Save", 0, -180, save);
+toggle("Music", -230, 0);                         // an on/off switch
+dropdown("Color", "Red|Green|Blue", -180, -80);   // the choices, split by |
 ```
 
+Read them anywhere:
+
 ```c
-on_change("Dark mode", fn);    // fn runs every time it changes
-set_value("Volume", 30);       // change it from your code
-control_color("red");          // color of knobs, ticks and switches (call before making them)
+value("Volume")       // 0 ... 100
+value("Dark mode")    // 1 = ticked, 0 = not
+value("Music")        // 1 = on, 0 = off
+choice("Color")       // "Red", "Green" or "Blue"
+```
+
+Run a function when one changes:
+
+```c
+void dark(void) { background(value("Dark mode") ? "black" : "white"); }
+
+on_change("Dark mode", dark);
+```
+
+More:
+
+```c
+slider("Volume", 0, 100, -180, 120, 40);   // start at 40 (add a 6th number)
+set_value("Volume", 30);                   // change it from your code
+control_color("red");                      // color of knobs, ticks, switches (call it before making them)
 remove_control("Volume");
 ```
-
-Inside `forever` you can just call them every frame: `int vol = slider("Volume", 0, 100, 0, 0);`
-gives back the value and doesn't make a new one.
 
 <img src="screenshots/controls.png" width="520">
 
@@ -793,8 +833,8 @@ void home(void) {
 | `place.c` | buttons in every corner, with the coordinate grid |
 | `gallery.c` | pictures anywhere with `image()` |
 | `move.c` | move and turn pictures and text with `image(...) { move_to(); lt(); rt(); }` |
-| `shell.c` | a full-window terminal with `cli()`, `cli_print()` and `run()` |
-| `controls.c` | sliders, checkbox, switch, dropdown and a terminal box |
+| `shell.c` | a full-window terminal with commands (`on_command`), `terminal_input()` and `run()` |
+| `controls.c` | a settings page: slider, checkbox, switch, dropdown and a terminal box |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
 | `commands.c` | type words, new things appear |
@@ -857,7 +897,7 @@ text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
 loading("...", sec)  loading("...", sec, x, y)  start_loading("...", sec)  loading_done()  progress("...", pct)  progress(pct)  loading_color("c")  loading_size(w, h)  hide_loading()
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")  input_color("bg", "text", "border")
-terminal()  terminal(x1, y1, x2, y2)  cli("$ ")  cli_print("...")  cli_clear()  terminal_color("bg", "text", "prompt")  cli_textsize(n)
+terminal("$ ")  terminal(x1, y1, x2, y2, "$ ")  on_command("name", fn)  terminal_print("...")  terminal_input("?")  terminal_clear()  terminal_color("bg", "text", "prompt")  terminal_textsize(n)
 slider("name", min, max, x, y)  checkbox("name", x, y)  toggle("name", x, y)  dropdown("name", "A|B|C", x, y)  value("name")  choice("name")  on_change("name", fn)  set_value("name", n)
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
