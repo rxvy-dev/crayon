@@ -151,7 +151,8 @@ userinput("?:", 0, 50);                // ask, with the box centered on (0, 50)
 
 ### Debug: `coords()`
 
-Put `coords();` anywhere and you get lines every 50 with their numbers, **on top of everything**,
+Put `coords();` anywhere and you get lines every 50, **on top of everything**, with the numbers along the edges
+like a times table (x across the top, y down the left side),
 plus the mouse's exact x, y next to it. Hover where you want something, copy the numbers, then delete the line.
 
 ```c

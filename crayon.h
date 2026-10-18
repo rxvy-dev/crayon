@@ -9944,7 +9944,7 @@ TT void grid(void) {
     }
     _tt_show();
 }
-/* coords();        DEBUG: lines every 50 with their numbers, on top of everything,
+/* coords();        DEBUG: lines every 50 on top of everything, numbers along the edges like a times table
  *                  and the mouse's x, y next to it. Great for placing things.
  * coords(100);     lines every 100
  * coords_off();    hide them again */
@@ -9979,16 +9979,33 @@ TT void _tt_draw_coords(Drawable d) {
     XSetForeground(dp, _tt.gc, axis);                          /* x = 0 and y = 0 */
     XDrawLine(dp, d, _tt.gc, _TT_SX(0), 0, _TT_SX(0), _tt.H);
     XDrawLine(dp, d, _tt.gc, 0, _TT_SY(0), _tt.W, _TT_SY(0));
+    /* the numbers, like a times table: x across the top, y down the left side */
     _TtFont *f = _tt_font(11, 1);
     char s[24];
-    int tag_h = f->asc + f->desc + 4;
-    for (int v = -lim / step * step; v <= lim; v += step) {   /* the numbers, along the middle lines */
+    int top = _tt.nbar ? _TT_BARH : 0, th = f->asc + f->desc + 8, lw = _tt_tw(f, "-0000") + 12;
+    XSetForeground(dp, _tt.gc, tagbg);
+    XFillRectangle(dp, d, _tt.gc, 0, top, (unsigned)_tt.W, (unsigned)th);          /* top strip */
+    XFillRectangle(dp, d, _tt.gc, 0, top, (unsigned)lw, (unsigned)(_tt.H - top));  /* left strip */
+    XSetForeground(dp, _tt.gc, 0x2C3038);
+    XDrawLine(dp, d, _tt.gc, 0, top + th, _tt.W, top + th);
+    XDrawLine(dp, d, _tt.gc, lw, top, lw, _tt.H);
+    for (int v = -lim / step * step; v <= lim; v += step) {
         int sx = _TT_SX(v), sy = _TT_SY(v);
         snprintf(s, sizeof s, "%d", v);
-        int w = _tt_tw(f, s) + 8;
-        if (sx - w / 2 >= 0 && sx + w / 2 < _tt.W) _tt_coords_tag(d, f, sx - w / 2, _TT_SY(0) + 4, v ? tagbg : axis, tagfg, s);
-        if (v && sy - tag_h / 2 >= 0 && sy + tag_h / 2 < _tt.H) _tt_coords_tag(d, f, _TT_SX(0) + 4, sy - tag_h / 2, tagbg, tagfg, s);
+        int w = _tt_tw(f, s);
+        unsigned long c = v ? tagfg : axis;
+        if (sx - w / 2 > lw + 2 && sx + w / 2 < _tt.W - 2) {
+            _tt_str(d, f, sx - w / 2, top + 4 + f->asc, c, s);
+            XSetForeground(dp, _tt.gc, c);
+            XDrawLine(dp, d, _tt.gc, sx, top + th - 3, sx, top + th);                   /* little tick */
+        }
+        if (sy - f->asc / 2 > top + th + 2 && sy + f->asc / 2 < _tt.H - 2) {
+            _tt_str(d, f, lw - 6 - w, sy + f->asc / 2 - 1, c, s);
+            XSetForeground(dp, _tt.gc, c);
+            XDrawLine(dp, d, _tt.gc, lw - 3, sy, lw, sy);
+        }
     }
+    _tt_str(d, f, 6, top + 4 + f->asc, axis, "y\\x");                              /* the corner */
     /* where the mouse is */
     if (_tt.mx > 0 && _tt.my > 0 && _tt.mx < _tt.W && _tt.my < _tt.H) {
         XSetForeground(dp, _tt.gc, axis);
