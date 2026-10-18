@@ -149,6 +149,19 @@ inputbox("Type...", 0, -200, 500, fn); // box centered on (0, -200), 500 wide
 userinput("?:", 0, 50);                // ask, with the box centered on (0, 50)
 ```
 
+### Debug: `coords()`
+
+Put `coords();` anywhere and you get lines every 50 with their numbers, **on top of everything**,
+plus the mouse's exact x, y next to it. Hover where you want something, copy the numbers, then delete the line.
+
+```c
+coords();        // lines every 50
+coords(100);     // lines every 100
+coords_off();    // hide them
+```
+
+<img src="screenshots/coords.png" width="560">
+
 ## Buttons anywhere
 
 ```c
@@ -577,7 +590,7 @@ rest(1)      // everything after the command        echo yo dude ->  "yo dude"
 More:
 
 ```c
-terminal(-300, -200, 300, 200, "$ ");          // a terminal BOX instead (two corners, like box())
+terminal(0, -200, 350, 150, "$ ");             // a terminal BOX: bottom-left corner (0, -200), top-right corner (350, 150)
 terminal_print("{red}error:{white} %d files", n);   // colors, numbers and \n work
 const char *name = terminal_input("Name? ");   // ask something and wait for the answer
 terminal_color("black", "white", "lime");      // background, text, prompt
@@ -882,7 +895,7 @@ by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `so
 ## Cheat sheet
 
 ```
-bundle("file")  window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()
+bundle("file")  window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()  coords()  coords(100)  coords_off()
 forward(n)  back(n)  left(deg)  right(deg)  face(deg)  go_to(x, y)  walk_to(x, y)  go_home()
 color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size)
 box(x1, y1, x2, y2, "color", round)  box_outline("color", thick)  box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
@@ -897,7 +910,7 @@ text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
 loading("...", sec)  loading("...", sec, x, y)  start_loading("...", sec)  loading_done()  progress("...", pct)  progress(pct)  loading_color("c")  loading_size(w, h)  hide_loading()
 userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
 button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")  input_color("bg", "text", "border")
-terminal("$ ")  terminal(x1, y1, x2, y2, "$ ")  on_command("name", fn)  terminal_print("...")  terminal_input("?")  terminal_clear()  terminal_color("bg", "text", "prompt")  terminal_textsize(n)
+terminal("$ ")  terminal(left, bottom, right, top, "$ ")  on_command("name", fn)  terminal_print("...")  terminal_input("?")  terminal_clear()  terminal_color("bg", "text", "prompt")  terminal_textsize(n)
 slider("name", min, max, x, y)  checkbox("name", x, y)  toggle("name", x, y)  dropdown("name", "A|B|C", x, y)  value("name")  choice("name")  on_change("name", fn)  set_value("name", n)
 inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
 new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()

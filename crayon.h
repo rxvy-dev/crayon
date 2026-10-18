@@ -8130,7 +8130,7 @@ typedef int Turtle;
     F(XDrawRectangle) F(XDrawString) F(XFlush) F(XFillArc) F(XDrawArc) F(XTextWidth) \
     F(XLookupKeysym) F(XLookupString) F(XCloseDisplay) F(XGetImage) F(XPutImage) \
     F(XPending) F(XkbSetDetectableAutoRepeat) F(XCreateFontCursor) F(XDefineCursor) F(XGetSubImage) F(XChangeProperty) \
-    F(XSetClipRectangles) F(XSetClipMask) F(XSync) F(XSetErrorHandler)
+    F(XSetClipRectangles) F(XSetClipMask) F(XSync) F(XSetErrorHandler) F(XSetDashes)
 #define _TT_DECL(n) __typeof__(&n) n;
 static struct { _TT_XFUNCS(_TT_DECL) } _xl;
 
@@ -8180,6 +8180,7 @@ TT void _tt_loadx(void) {
 #define XSetClipMask        (_xl.XSetClipMask)
 #define XSync               (_xl.XSync)
 #define XSetErrorHandler    (_xl.XSetErrorHandler)
+#define XSetDashes          (_xl.XSetDashes)
 #define XkbSetDetectableAutoRepeat (_xl.XkbSetDetectableAutoRepeat)
 #define XCreateFontCursor   (_xl.XCreateFontCursor)
 #define XDefineCursor       (_xl.XDefineCursor)
@@ -9363,6 +9364,7 @@ TT void _tt_anim_step(void) {
 
 TT void _tt_draw_term(Drawable d);
 TT void _tt_draw_ui(Drawable d, int top);
+TT void _tt_draw_coords(Drawable d);
 TT void _tt_refresh(void) {
     _tt_anim_step();
     if (_tt.closed || !_tt.dpy) return;
@@ -9557,6 +9559,7 @@ TT void _tt_refresh(void) {
     }
 
     _tt_draw_ui(_tt.buf, 1);                            /* an open dropdown list goes on top of everything */
+    _tt_draw_coords(_tt.buf);                           /* coords() debug lines, on top of that */
     XCopyArea(d, _tt.buf, _tt.win, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0);
     XFlush(d);
 }
@@ -9941,6 +9944,66 @@ TT void grid(void) {
     }
     _tt_show();
 }
+/* coords();        DEBUG: lines every 50 with their numbers, on top of everything,
+ *                  and the mouse's x, y next to it. Great for placing things.
+ * coords(100);     lines every 100
+ * coords_off();    hide them again */
+static int _tt_coords_step = 0;
+TT void _tt_coords1(int step) { _tt_check(); _tt_coords_step = step > 4 ? step : 0; _tt_show(); }
+TT void _tt_coords0(void) { _tt_coords1(50); }
+TT void coords_off(void) { _tt_coords_step = 0; _tt_show(); }
+#define coords(...) _TT_PICK2(_, ##__VA_ARGS__, _tt_coords1, _tt_coords0)(__VA_ARGS__)
+
+TT void _tt_coords_tag(Drawable d, _TtFont *f, int x, int y, unsigned long bg, unsigned long fg, const char *s) {
+    int w = _tt_tw(f, s) + 8, h = f->asc + f->desc + 4;
+    _tt_rrect(d, x, y, w, h, 4, bg, 1);
+    _tt_str(d, f, x + 4, y + 2 + f->asc, fg, s);
+}
+TT void _tt_draw_coords(Drawable d) {
+    if (!_tt_coords_step) return;
+    Display *dp = _tt.dpy;
+    int step = _tt_coords_step, dark = !_tt_light(_tt.bg);
+    unsigned long line = dark ? 0x5C6370 : 0xA0A7B0, axis = 0xFF3B6B, tagbg = 0x16181D, tagfg = 0xF2F2F2;
+    char dash[2] = { 3, 4 };
+    XSetLineAttributes(dp, _tt.gc, 1, LineOnOffDash, CapButt, JoinMiter);
+    XSetDashes(dp, _tt.gc, 0, dash, 2);
+    XSetForeground(dp, _tt.gc, line);
+    int lim = (_tt.W > _tt.H ? _tt.W : _tt.H) / 2 + step;
+    for (int v = -lim / step * step; v <= lim; v += step) {
+        if (!v) continue;
+        int sx = _TT_SX(v), sy = _TT_SY(v);
+        if (sx >= 0 && sx < _tt.W) XDrawLine(dp, d, _tt.gc, sx, 0, sx, _tt.H);
+        if (sy >= 0 && sy < _tt.H) XDrawLine(dp, d, _tt.gc, 0, sy, _tt.W, sy);
+    }
+    XSetLineAttributes(dp, _tt.gc, 1, LineSolid, CapButt, JoinMiter);
+    XSetForeground(dp, _tt.gc, axis);                          /* x = 0 and y = 0 */
+    XDrawLine(dp, d, _tt.gc, _TT_SX(0), 0, _TT_SX(0), _tt.H);
+    XDrawLine(dp, d, _tt.gc, 0, _TT_SY(0), _tt.W, _TT_SY(0));
+    _TtFont *f = _tt_font(11, 1);
+    char s[24];
+    int tag_h = f->asc + f->desc + 4;
+    for (int v = -lim / step * step; v <= lim; v += step) {   /* the numbers, along the middle lines */
+        int sx = _TT_SX(v), sy = _TT_SY(v);
+        snprintf(s, sizeof s, "%d", v);
+        int w = _tt_tw(f, s) + 8;
+        if (sx - w / 2 >= 0 && sx + w / 2 < _tt.W) _tt_coords_tag(d, f, sx - w / 2, _TT_SY(0) + 4, v ? tagbg : axis, tagfg, s);
+        if (v && sy - tag_h / 2 >= 0 && sy + tag_h / 2 < _tt.H) _tt_coords_tag(d, f, _TT_SX(0) + 4, sy - tag_h / 2, tagbg, tagfg, s);
+    }
+    /* where the mouse is */
+    if (_tt.mx > 0 && _tt.my > 0 && _tt.mx < _tt.W && _tt.my < _tt.H) {
+        XSetForeground(dp, _tt.gc, axis);
+        XDrawLine(dp, d, _tt.gc, _tt.mx - 8, _tt.my, _tt.mx + 8, _tt.my);
+        XDrawLine(dp, d, _tt.gc, _tt.mx, _tt.my - 8, _tt.mx, _tt.my + 8);
+        _TtFont *mf = _tt_font(13, 1);
+        snprintf(s, sizeof s, "x %d   y %d", _tt_round(_tt.mx - _tt.W / 2.0f), _tt_round(_tt.H / 2.0f - _tt.my));
+        int w = _tt_tw(mf, s) + 8, h = mf->asc + mf->desc + 4;
+        int bx = _tt.mx + 14, by = _tt.my + 16;
+        if (bx + w > _tt.W) bx = _tt.mx - 14 - w;
+        if (by + h > _tt.H) by = _tt.my - 16 - h;
+        _tt_coords_tag(d, mf, bx, by, axis, WHITE, s);
+    }
+}
+
 /* show_coords();  shows where the mouse is, in the corner */
 TT void show_coords(void) { _tt.coords_on = 1; _tt_show(); }
 TT void hide_coords(void) { _tt.coords_on = 0; _tt_show(); }
@@ -10763,7 +10826,7 @@ TT void _tt_submit(void) {
 /*   finishes a command, Up/Down brings back old ones.          */
 /*   Inside your function: word(1) rest(1) number(1) = what was typed after the command. */
 /*                                                              */
-/*   terminal(-300, -200, 300, 200, "$ ");   a box instead (two corners, like box()) */
+/*   terminal(0, -200, 350, 150, "$ ");     a box: bottom-left corner, top-right corner */
 /*   terminal_print("{red}oops %d", n);      write a line (colors, %d, \n)  */
 /*   terminal_input("Name? ")                wait for one line and give it back */
 /*   terminal_clear();   terminal_color("black", "white", "lime");   terminal_textsize(20); */
