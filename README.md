@@ -151,7 +151,7 @@ userinput("?:", 0, 50);                // ask, with the box centered on (0, 50)
 
 ### Debug: `coords()`
 
-Put `coords();` anywhere and you get lines every 50, **on top of everything**, with the numbers along the edges
+Put `coords();` anywhere and you get lines every 50, **on top of everything**, with the numbers
 on all 4 sides like a times table (x on the top and bottom, y on the left and right, each corner shows its own x,y),
 plus the mouse's exact x, y next to it. Hover where you want something, copy the numbers, then delete the line.
 
@@ -161,7 +161,7 @@ coords(100);     // lines every 100
 coords_off();    // hide them
 ```
 
-<img src="screenshots/coords.png" width="560">
+<img src="screenshots/coords-grid.png" width="560">
 
 ## Buttons anywhere
 
@@ -600,7 +600,7 @@ terminal_clear();
 on_command("*", fn);                            // runs for anything that isn't one of your commands
 ```
 
-<img src="screenshots/terminal.png" width="520">
+<img src="screenshots/terminal-commands.png" width="520">
 
 ## Sliders, checkboxes, switches and dropdowns
 
@@ -639,7 +639,7 @@ control_color("red");                      // color of knobs, ticks, switches (c
 remove_control("Volume");
 ```
 
-<img src="screenshots/controls.png" width="520">
+<img src="screenshots/controls-settings.png" width="520">
 
 ## Pages
 
