@@ -8369,7 +8369,7 @@ TT _TtFont *_tt_font(int size, int bold) {
     f.size = size; f.bold = bold;
     char name[160];
     if (_tt_xft.ok) {
-        snprintf(name, sizeof name, "sans-serif:pixelsize=%d%s", size, bold ? ":bold" : "");
+        snprintf(name, sizeof name, "%s:pixelsize=%d%s", bold & 2 ? "monospace" : "sans-serif", size, bold & 1 ? ":bold" : "");
         f.xft = _tt_xft.open(_tt.dpy, DefaultScreen(_tt.dpy), name);
     }
     if (f.xft) { f.asc = ((_tt_xfont *)f.xft)->ascent; f.desc = ((_tt_xfont *)f.xft)->descent; }
@@ -8378,7 +8378,7 @@ TT _TtFont *_tt_font(int size, int bold) {
                                "-*-dejavu sans-%s-r-normal--%d-*-*-*-*-*-*-*",
                                "-*-*-%s-r-normal--%d-*-*-*-*-*-iso8859-1" };
         for (unsigned i = 0; i < 3 && !f.core; i++) {
-            snprintf(name, sizeof name, pats[i], bold ? "bold" : "medium", size);
+            snprintf(name, sizeof name, pats[i], bold & 1 ? "bold" : "medium", size);
             f.core = XLoadQueryFont(_tt.dpy, name);
         }
         if (!f.core) f.core = XLoadQueryFont(_tt.dpy, "fixed");
@@ -9360,6 +9360,8 @@ TT void _tt_anim_step(void) {
     }
 }
 
+TT void _tt_draw_term(Drawable d);
+TT void _tt_draw_ui(Drawable d, int top);
 TT void _tt_refresh(void) {
     _tt_anim_step();
     if (_tt.closed || !_tt.dpy) return;
@@ -9470,7 +9472,8 @@ TT void _tt_refresh(void) {
         for (int i = 0; i < 3; i++) XDrawLine(d, _tt.buf, _tt.gc, p[i].x, p[i].y, p[i + 1].x, p[i + 1].y);
     }
 
-    /* 3. health bars and other boxes for this frame, then text */
+    /* 3. the terminal, health bars and other boxes for this frame, then text */
+    _tt_draw_term(_tt.buf);
     for (int i = 0; i < _tt.nhud; i++) _tt_rrect(_tt.buf, _tt.hud[i].x, _tt.hud[i].y, _tt.hud[i].w, _tt.hud[i].h, _tt.hud[i].r, _tt.hud[i].c, 1);
     for (int i = 0; i < _tt.ntxt; i++) {
         _TtText *t = &_tt.txt[i];
@@ -9516,6 +9519,8 @@ TT void _tt_refresh(void) {
         _tt_block(_tt.buf, f, b->x + 14, b->y + (b->h - more + f->asc - f->desc) / 2, b->fg, b->label, 2, 1);
     }
 
+    _tt_draw_ui(_tt.buf, 0);                            /* sliders, checkboxes, switches, dropdowns */
+
     /* 6. the text box */
     int tx, ty, tw;
     if (_tt_tb_px(&tx, &ty, &tw)) {
@@ -9550,6 +9555,7 @@ TT void _tt_refresh(void) {
         }
     }
 
+    _tt_draw_ui(_tt.buf, 1);                            /* an open dropdown list goes on top of everything */
     XCopyArea(d, _tt.buf, _tt.win, _tt.gc, 0, 0, _tt.W, _tt.H, 0, 0);
     XFlush(d);
 }
@@ -10743,6 +10749,473 @@ TT void _tt_submit(void) {
 /* ============================================================ */
 /* THE EVENT LOOP                                               */
 /* ============================================================ */
+
+/* ============================================================ */
+/* TERMINAL: a text input that looks and works like a real CLI  */
+/*                                                              */
+/*   terminal();                       the whole window is a terminal  */
+/*   terminal(-350, -200, 350, 200);   or a box (two corners, like box()) */
+/*   cli_print("{green}Welcome!");     print a line (colors, %d, \n all work) */
+/*   const char *cmd = cli("$ ");      waits for a command and gives it back */
+/*   cli_clear();                      wipe it                      */
+/*   terminal_color("black", "white", "lime");   background, text, prompt */
+/*   cli_textsize(20);                 bigger letters (16 is normal) */
+/*                                                              */
+/*   Up/Down = old commands, Left/Right/Home/End to move,       */
+/*   Ctrl+L clear, Ctrl+U clear the line, Ctrl+C cancel,        */
+/*   PageUp/PageDown or the mouse wheel to scroll.              */
+/*   word(0), word(1), rest(1), command("ls") work on the last command. */
+/* ============================================================ */
+#define _TT_TLINES 500
+#define _TT_THIST 100
+static struct {
+    int on, full, reading, done, cur, hpos, nhist, size, scroll, first, n;
+    float x1, y1, x2, y2;
+    unsigned long bg, fg, pc;
+    char *lines[_TT_TLINES];
+    char prompt[128], input[512], hist[_TT_THIST][512], got[512];
+} _tt_term = { 0, 1, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0x0C0C0C, 0xE6E6E6, 0x4EE07A, {0}, "", "", {{0}}, "" };
+
+TT void _tt_term_on(void) {
+    _tt_check();
+    _tt_term.on = 1;
+}
+/* cli_textsize(20);   size of the terminal's letters (16 is normal) */
+TT void cli_textsize(int n) { _tt_term.size = n < 8 ? 8 : n > 60 ? 60 : n; _tt_show(); }
+TT void _tt_terminal0(void) { _tt_term_on(); _tt_term.full = 1; _tt_show(); }
+TT void _tt_terminal4(double x1, double y1, double x2, double y2) {
+    _tt_term_on(); _tt_term.full = 0;
+    _tt_term.x1 = (float)(x1 < x2 ? x1 : x2); _tt_term.x2 = (float)(x1 < x2 ? x2 : x1);
+    _tt_term.y1 = (float)(y1 < y2 ? y1 : y2); _tt_term.y2 = (float)(y1 < y2 ? y2 : y1);
+    _tt_show();
+}
+#define terminal(...) _TT_PICK5(_, ##__VA_ARGS__, _tt_terminal4, _tt_terminal_needs_4_numbers, _tt_terminal_needs_4_numbers, _tt_terminal_needs_4_numbers, _tt_terminal0)(__VA_ARGS__)
+TT void _tt_terminal_color3(unsigned long bg, unsigned long fg, unsigned long prompt) {
+    _tt_term.bg = bg; _tt_term.fg = fg; _tt_term.pc = prompt; _tt_show();
+}
+TT void _tt_terminal_color2(unsigned long bg, unsigned long fg) { _tt_terminal_color3(bg, fg, _tt_term.pc); }
+#define _tt_tc3(a, b, c) _tt_terminal_color3(_TT_COL(a), _TT_COL(b), _TT_COL(c))
+#define _tt_tc2(a, b) _tt_terminal_color2(_TT_COL(a), _TT_COL(b))
+#define terminal_color(...) _TT_PICK3(__VA_ARGS__, _tt_tc3, _tt_tc2, 0)(__VA_ARGS__)
+
+TT void _tt_term_add(const char *line) {
+    char *copy = strdup(line);
+    if (!copy) return;
+    if (_tt_term.n < _TT_TLINES) _tt_term.lines[(_tt_term.first + _tt_term.n++) % _TT_TLINES] = copy;
+    else { free(_tt_term.lines[_tt_term.first]); _tt_term.lines[_tt_term.first] = copy; _tt_term.first = (_tt_term.first + 1) % _TT_TLINES; }
+}
+TT void cli_print(const char *fmt, ...) {
+    char b[4096]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    _tt_term_on();
+    _tt_term_add(b);
+    _tt_term.scroll = 0;
+    _tt_show();
+}
+TT void cli_clear(void) {
+    for (int i = 0; i < _tt_term.n; i++) free(_tt_term.lines[(_tt_term.first + i) % _TT_TLINES]);
+    _tt_term.n = 0; _tt_term.first = 0; _tt_term.scroll = 0;
+    _tt_show();
+}
+TT void terminal_off(void) { _tt_term.on = 0; _tt_show(); }
+
+TT const char *cli(const char *prompt) {
+    _tt_term_on();
+    if (_tt.closed) return "";
+    snprintf(_tt_term.prompt, sizeof _tt_term.prompt, "%s", prompt ? prompt : "> ");
+    _tt_term.input[0] = 0; _tt_term.cur = 0; _tt_term.hpos = _tt_term.nhist; _tt_term.scroll = 0;
+    int lm = _tt.loop_mode; _tt.loop_mode = 0;
+    _tt.focus = 0; _tt.submitted = 0;
+    _tt_term.reading = 1; _tt_term.done = 0;
+    _tt_refresh();
+    while (!_tt_term.done) _tt_wait_tick();
+    _tt_term.reading = 0;
+    char line[1024];
+    snprintf(line, sizeof line, "{#%06lx}%s{#%06lx}%s", _tt_term.pc, _tt_term.prompt, _tt_term.fg, _tt_term.input);
+    _tt_term_add(line);
+    if (_tt_term.input[0] && (!_tt_term.nhist || strcmp(_tt_term.hist[(_tt_term.nhist - 1) % _TT_THIST], _tt_term.input))) {
+        if (_tt_term.nhist >= _TT_THIST) {                   /* forget the oldest */
+            memmove(_tt_term.hist[0], _tt_term.hist[1], sizeof _tt_term.hist - sizeof _tt_term.hist[0]);
+            _tt_term.nhist = _TT_THIST - 1;
+        }
+        snprintf(_tt_term.hist[_tt_term.nhist++], sizeof _tt_term.hist[0], "%s", _tt_term.input);
+    }
+    snprintf(_tt.entry, sizeof _tt.entry, "%s", _tt_term.input);   /* so word(), rest(), command() work */
+    snprintf(_tt_term.got, sizeof _tt_term.got, "%s", _tt_term.input);
+    _tt.submitted = 1;
+    _tt.loop_mode = lm;
+    _tt_refresh();
+    return _tt_term.got;
+}
+
+TT void _tt_term_key(XKeyEvent *k, KeySym ks) {
+    char chars[16] = {0}; KeySym sym;
+    int n = XLookupString(k, chars, sizeof chars - 1, &sym, NULL);
+    char *in = _tt_term.input;
+    int len = (int)strlen(in), ctrl = (k->state & ControlMask) != 0;
+    if (ks == XK_Return || ks == XK_KP_Enter) _tt_term.done = 1;
+    else if (ks == XK_BackSpace) { if (_tt_term.cur > 0) { memmove(in + _tt_term.cur - 1, in + _tt_term.cur, (size_t)(len - _tt_term.cur + 1)); _tt_term.cur--; } }
+    else if (ks == XK_Delete) { if (_tt_term.cur < len) memmove(in + _tt_term.cur, in + _tt_term.cur + 1, (size_t)(len - _tt_term.cur)); }
+    else if (ks == XK_Left) { if (_tt_term.cur > 0) _tt_term.cur--; }
+    else if (ks == XK_Right) { if (_tt_term.cur < len) _tt_term.cur++; }
+    else if (ks == XK_Home || (ctrl && ks == 'a')) _tt_term.cur = 0;
+    else if (ks == XK_End || (ctrl && ks == 'e')) _tt_term.cur = len;
+    else if (ks == XK_Up) {
+        if (_tt_term.hpos > 0) { _tt_term.hpos--; snprintf(in, sizeof _tt_term.input, "%s", _tt_term.hist[_tt_term.hpos]); _tt_term.cur = (int)strlen(in); }
+    }
+    else if (ks == XK_Down) {
+        if (_tt_term.hpos < _tt_term.nhist) {
+            _tt_term.hpos++;
+            snprintf(in, sizeof _tt_term.input, "%s", _tt_term.hpos < _tt_term.nhist ? _tt_term.hist[_tt_term.hpos] : "");
+            _tt_term.cur = (int)strlen(in);
+        }
+    }
+    else if (ks == XK_Page_Up) { _tt_term.scroll += 8; return; }
+    else if (ks == XK_Page_Down) { _tt_term.scroll -= 8; if (_tt_term.scroll < 0) _tt_term.scroll = 0; return; }
+    else if (ctrl && ks == 'l') { cli_clear(); }
+    else if (ctrl && ks == 'u') { in[0] = 0; _tt_term.cur = 0; }
+    else if (ctrl && ks == 'c') {
+        char line[1024];
+        snprintf(line, sizeof line, "{#%06lx}%s{#%06lx}%s^C", _tt_term.pc, _tt_term.prompt, _tt_term.fg, in);
+        _tt_term_add(line);
+        in[0] = 0; _tt_term.cur = 0;
+    }
+    else if (!ctrl) for (int i = 0; i < n; i++)
+        if (chars[i] >= 32 && chars[i] < 127 && len < (int)sizeof _tt_term.input - 1) {
+            memmove(in + _tt_term.cur + 1, in + _tt_term.cur, (size_t)(len - _tt_term.cur + 1));
+            in[_tt_term.cur++] = chars[i]; len++;
+        }
+    _tt_term.scroll = 0;
+}
+
+/* cuts text with {tags} into rows of at most `cols` letters. Each row starts with the colors that were on.
+ * rows can be NULL to just count them */
+TT int _tt_wrap(const char *s, int cols, char (*rows)[600], int maxrows) {
+    int nr = 0, n = 0, vis = 0;
+    char cfx[32] = "", ccol[32] = "";
+#define _TT_ROW_END() do { if (rows && nr < maxrows) rows[nr][n] = 0; nr++; n = 0; vis = 0; \
+        if (rows && nr < maxrows) n = snprintf(rows[nr], 600, "%s%s", cfx, ccol); } while (0)
+    if (rows && maxrows > 0) rows[0][0] = 0;
+    for (const char *p = s; *p;) {
+        int len, k = _tt_tag(p, &len, NULL);
+        if (k) {
+            if (k >= 10) snprintf(cfx, sizeof cfx, "%.*s", len, p); else snprintf(ccol, sizeof ccol, "%.*s", len, p);
+            if (rows && nr < maxrows && n + len < 590) { memcpy(rows[nr] + n, p, (size_t)len); n += len; }
+            p += len; continue;
+        }
+        if (*p == '\n') { _TT_ROW_END(); p++; continue; }
+        if (vis >= cols) _TT_ROW_END();
+        int clen; _tt_utf8((const unsigned char *)p, &clen);
+        if (clen < 1) clen = 1;
+        if (rows && nr < maxrows && n + clen < 590) { memcpy(rows[nr] + n, p, (size_t)clen); n += clen; }
+        vis++; p += clen;
+    }
+    if (rows && nr < maxrows) rows[nr][n] = 0;
+#undef _TT_ROW_END
+    return nr + 1;
+}
+
+TT void _tt_draw_term(Drawable d) {
+    if (!_tt_term.on) return;
+    _TtFont *f = _tt_font(_tt_term.size, 2);
+    int lh = f->asc + f->desc + 3, cw = _tt_tw(f, "M");
+    if (cw < 1) cw = 8;
+    int x, y, w, h;
+    if (_tt_term.full) { x = 0; y = _tt.nbar ? _TT_BARH : 0; w = _tt.W; h = _tt.H - y; }
+    else { x = _TT_SX(_tt_term.x1); y = _TT_SY(_tt_term.y2); w = _TT_SX(_tt_term.x2) - x; h = _TT_SY(_tt_term.y1) - y; }
+    if (w < 40 || h < 30) return;
+    _tt_rrect(d, x, y, w, h, _tt_term.full ? 0 : 10, _tt_term.bg, 1);
+    if (!_tt_term.full) _tt_rrect(d, x, y, w, h, 10, _tt_mix(_tt_term.bg, _tt_term.fg, 0.25f), 0);
+    int pad = 12, cols = (w - 2 * pad) / cw, nrows = (h - 2 * pad) / lh;
+    if (cols < 4 || nrows < 1) return;
+    /* the line you're typing: prompt + what you typed */
+    char inl[1024];
+    int pv = 0;
+    if (_tt_term.reading) {
+        snprintf(inl, sizeof inl, "{#%06lx}%s{#%06lx}%s", _tt_term.pc, _tt_term.prompt, _tt_term.fg, _tt_term.input);
+        pv = _tt_letters(_tt_term.prompt);
+    }
+    int cidx = pv + _tt_term.cur;
+    int in_rows = 0;
+    if (_tt_term.reading) { in_rows = _tt_wrap(inl, cols, NULL, 0); if (cidx / cols + 1 > in_rows) in_rows = cidx / cols + 1; }
+    int total = in_rows;
+    for (int i = 0; i < _tt_term.n; i++) total += _tt_wrap(_tt_term.lines[(_tt_term.first + i) % _TT_TLINES], cols, NULL, 0);
+    int maxscroll = total > nrows ? total - nrows : 0;
+    if (_tt_term.scroll > maxscroll) _tt_term.scroll = maxscroll;
+    int top = total > nrows ? total - nrows - _tt_term.scroll : 0;      /* first row we can see */
+    static char rows[64][600];
+    int r = 0;
+    for (int i = 0; i <= _tt_term.n; i++) {
+        const char *line;
+        if (i < _tt_term.n) line = _tt_term.lines[(_tt_term.first + i) % _TT_TLINES];
+        else if (_tt_term.reading) line = inl;
+        else break;
+        int nr = _tt_wrap(line, cols, NULL, 0);
+        if (r + nr <= top) { r += nr; continue; }               /* scrolled away above */
+        if (r >= top + nrows) break;
+        int got = _tt_wrap(line, cols, rows, 64);
+        for (int k = 0; k < got && k < 64; k++, r++)
+            if (r >= top && r < top + nrows) _tt_tagged(d, f, x + pad, y + pad + (r - top) * lh + f->asc, _tt_term.fg, rows[k], 1);
+        if (i == _tt_term.n) {                                  /* blinking block cursor */
+            int cr = r - got + cidx / cols, cc = cidx % cols;
+            if (cr >= top && cr < top + nrows && _tt_frac(_tt_now() * 1.6) < 0.6f) {
+                int cx = x + pad + cc * cw, cy = y + pad + (cr - top) * lh;
+                XSetForeground(_tt.dpy, _tt.gc, _tt_term.fg);
+                XFillRectangle(_tt.dpy, d, _tt.gc, cx, cy, (unsigned)cw, (unsigned)(f->asc + f->desc));
+                if (_tt_term.cur < (int)strlen(_tt_term.input)) {
+                    char one[2] = { _tt_term.input[_tt_term.cur], 0 };
+                    _tt_str(d, f, cx, cy + f->asc, _tt_term.bg, one);
+                }
+            }
+        }
+    }
+    if (_tt_term.scroll > 0) {                                  /* "you scrolled up" hint */
+        _TtFont *sf = _tt_font(12, 1);
+        const char *m = "scrolled up - PageDown";
+        _tt_str(d, sf, x + w - _tt_tw(sf, m) - 12, y + h - 8, _tt_mix(_tt_term.fg, _tt_term.bg, 0.4f), m);
+    }
+}
+
+/* ============================================================ */
+/* GUI CONTROLS: sliders, checkboxes, switches, dropdowns       */
+/*                                                              */
+/*   slider("Volume", 0, 100, -200, 100);       min, max, x, y  */
+/*   slider("Volume", 0, 100, -200, 100, 50);   starting at 50  */
+/*   checkbox("Dark mode", -200, 40);                           */
+/*   toggle("Music", -200, 0);                  an on/off switch */
+/*   dropdown("Color", "Red|Green|Blue", -200, -60);            */
+/*                                                              */
+/*   value("Volume")      its number (checkbox/toggle: 1 or 0,  */
+/*                        dropdown: 1, 2, 3 ...)                */
+/*   choice("Color")      the words picked in a dropdown        */
+/*   on_change("Volume", fn);   fn runs every time it changes   */
+/*   set_value("Volume", 30);   change it from your code        */
+/*   control_color("red");      color of knobs, ticks, switches */
+/*                                                              */
+/*   Each one remembers its value by its name. Calling it again */
+/*   (like inside forever) just gives back the value.           */
+/* ============================================================ */
+enum { _TT_SLIDER = 1, _TT_CHECK, _TT_TOGGLE, _TT_DROP };
+typedef struct {
+    int used, kind, min, max, val, nopt;
+    float x, y;
+    char label[64], opts[16][64];
+    TtFn fn;
+    unsigned long accent;
+} _TtCtl;
+static struct { _TtCtl c[64]; int n, drag, open; unsigned long accent; char pick[64]; } _tt_ui = { .drag = -1, .open = -1, .accent = 0x3498DB };
+
+TT int _tt_ctl_find(const char *label) {
+    for (int i = 0; i < _tt_ui.n; i++) if (_tt_ui.c[i].used && !strcmp(_tt_ui.c[i].label, label)) return i;
+    return -1;
+}
+TT _TtCtl *_tt_ctl(const char *label, int kind, double x, double y, int *fresh) {
+    _tt_check();
+    int i = _tt_ctl_find(label);
+    *fresh = i < 0;
+    if (i < 0) {
+        for (i = 0; i < _tt_ui.n && _tt_ui.c[i].used; i++) {}
+        if (i >= 64) { fprintf(stderr, "crayon.h: too many controls (64 max)\n"); i = 63; }
+        if (i == _tt_ui.n) _tt_ui.n++;
+        memset(&_tt_ui.c[i], 0, sizeof _tt_ui.c[i]);
+        _tt_ui.c[i].used = 1;
+        snprintf(_tt_ui.c[i].label, sizeof _tt_ui.c[i].label, "%s", label);
+        _tt_ui.c[i].accent = _tt_ui.accent;
+    }
+    _TtCtl *c = &_tt_ui.c[i];
+    c->kind = kind; c->x = (float)x; c->y = (float)y;
+    return c;
+}
+TT void _tt_ctl_changed(_TtCtl *c) { if (c->fn) { int keep = _tt.cur; c->fn(); _tt.cur = keep; } }
+
+TT int _tt_slider6(const char *label, int min, int max, double x, double y, int start) {
+    int fresh; _TtCtl *c = _tt_ctl(label, _TT_SLIDER, x, y, &fresh);
+    if (min > max) { int t = min; min = max; max = t; }
+    c->min = min; c->max = max;
+    if (fresh) c->val = start < min ? min : start > max ? max : start;
+    if (c->val < min) c->val = min;
+    if (c->val > max) c->val = max;
+    if (fresh) _tt_show();
+    return c->val;
+}
+TT int _tt_slider5(const char *label, int min, int max, double x, double y) { return _tt_slider6(label, min, max, x, y, min); }
+#define slider(...) _TT_PICK6(__VA_ARGS__, _tt_slider6, _tt_slider5, 0)(__VA_ARGS__)
+TT int checkbox(const char *label, double x, double y) {
+    int fresh; _TtCtl *c = _tt_ctl(label, _TT_CHECK, x, y, &fresh);
+    c->min = 0; c->max = 1;
+    if (fresh) _tt_show();
+    return c->val;
+}
+TT int toggle(const char *label, double x, double y) {
+    int fresh; _TtCtl *c = _tt_ctl(label, _TT_TOGGLE, x, y, &fresh);
+    c->min = 0; c->max = 1;
+    if (fresh) _tt_show();
+    return c->val;
+}
+TT const char *dropdown(const char *label, const char *options, double x, double y) {
+    int fresh; _TtCtl *c = _tt_ctl(label, _TT_DROP, x, y, &fresh);
+    if (fresh) {
+        c->nopt = 0;
+        for (const char *p = options; *p && c->nopt < 16;) {
+            const char *bar = strchr(p, '|');
+            int n = bar ? (int)(bar - p) : (int)strlen(p);
+            snprintf(c->opts[c->nopt++], sizeof c->opts[0], "%.*s", n, p);
+            if (!bar) break;
+            p = bar + 1;
+        }
+        c->val = 1; c->min = 1; c->max = c->nopt;
+        _tt_show();
+    }
+    return c->nopt ? c->opts[c->val - 1] : "";
+}
+TT int value(const char *label) { int i = _tt_ctl_find(label); return i < 0 ? 0 : _tt_ui.c[i].val; }
+TT const char *choice(const char *label) {
+    int i = _tt_ctl_find(label);
+    if (i < 0 || _tt_ui.c[i].kind != _TT_DROP || !_tt_ui.c[i].nopt) return "";
+    snprintf(_tt_ui.pick, sizeof _tt_ui.pick, "%s", _tt_ui.c[i].opts[_tt_ui.c[i].val - 1]);
+    return _tt_ui.pick;
+}
+TT void set_value(const char *label, int v) {
+    int i = _tt_ctl_find(label);
+    if (i < 0) return;
+    _TtCtl *c = &_tt_ui.c[i];
+    if (v < c->min) v = c->min;
+    if (v > c->max) v = c->max;
+    c->val = v;
+    _tt_show();
+}
+TT void on_change(const char *label, TtFn fn) { int i = _tt_ctl_find(label); if (i >= 0) _tt_ui.c[i].fn = fn; }
+TT void remove_control(const char *label) { int i = _tt_ctl_find(label); if (i >= 0) { _tt_ui.c[i].used = 0; if (_tt_ui.open == i) _tt_ui.open = -1; _tt_show(); } }
+TT void _tt_control_color(unsigned long c) { _tt_ui.accent = c; _tt_show(); }
+#define control_color(c) _tt_control_color(_TT_COL(c))
+
+/* where each control is on the screen (in pixels): the part you click */
+TT void _tt_ctl_box(_TtCtl *c, int *x, int *y, int *w, int *h) {
+    _TtFont *f = _tt_font(16, 0);
+    int cx = _TT_SX(c->x), cy = _TT_SY(c->y), tw = _tt_tw(f, c->label);
+    if (c->kind == _TT_SLIDER) { *w = 240; *h = 26; }
+    else if (c->kind == _TT_CHECK) { *w = 32 + tw; *h = 26; }
+    else if (c->kind == _TT_TOGGLE) { *w = 58 + tw; *h = 28; }
+    else {
+        int widest = 0;
+        for (int i = 0; i < c->nopt; i++) { int ow = _tt_tw(f, c->opts[i]); if (ow > widest) widest = ow; }
+        *w = widest + 56 < 170 ? 170 : widest + 56; *h = 36;
+    }
+    *x = cx - *w / 2; *y = cy - *h / 2;
+}
+TT int _tt_ctl_at(int mx, int my) {
+    for (int i = _tt_ui.n - 1; i >= 0; i--) {
+        if (!_tt_ui.c[i].used) continue;
+        int x, y, w, h; _tt_ctl_box(&_tt_ui.c[i], &x, &y, &w, &h);
+        if (mx >= x - 4 && mx < x + w + 4 && my >= y - 4 && my < y + h + 4) return i;
+    }
+    return -1;
+}
+TT int _tt_drop_item_at(int mx, int my) {                      /* which line of the open dropdown list */
+    if (_tt_ui.open < 0) return -1;
+    _TtCtl *c = &_tt_ui.c[_tt_ui.open];
+    int x, y, w, h; _tt_ctl_box(c, &x, &y, &w, &h);
+    int ly = y + h + 4;
+    if (mx < x || mx >= x + w || my < ly || my >= ly + c->nopt * 32) return -1;
+    return (my - ly) / 32;
+}
+TT void _tt_slider_drag(_TtCtl *c, int mx) {
+    int x, y, w, h; _tt_ctl_box(c, &x, &y, &w, &h);
+    float k = (float)(mx - x) / w;
+    if (k < 0) k = 0;
+    if (k > 1) k = 1;
+    int v = c->min + _tt_round(k * (c->max - c->min));
+    if (v != c->val) { c->val = v; _tt_ctl_changed(c); }
+}
+/* a mouse press: 1 = a control used it */
+TT int _tt_ui_press(int mx, int my) {
+    if (_tt_ui.open >= 0) {                                     /* a dropdown is open: pick or close */
+        _TtCtl *c = &_tt_ui.c[_tt_ui.open];
+        int k = _tt_drop_item_at(mx, my);
+        _tt_ui.open = -1;
+        if (k >= 0) { if (c->val != k + 1) { c->val = k + 1; _tt_ctl_changed(c); } }
+        return 1;
+    }
+    int i = _tt_ctl_at(mx, my);
+    if (i < 0) return 0;
+    _TtCtl *c = &_tt_ui.c[i];
+    if (c->kind == _TT_SLIDER) { _tt_ui.drag = i; _tt_slider_drag(c, mx); }
+    else if (c->kind == _TT_CHECK || c->kind == _TT_TOGGLE) { c->val = !c->val; _tt_ctl_changed(c); }
+    else if (c->kind == _TT_DROP) _tt_ui.open = i;
+    return 1;
+}
+
+TT void _tt_draw_ui(Drawable d, int top) {
+    int dark = !_tt_light(_tt.bg);
+    unsigned long ink = dark ? 0xEEEEEE : 0x222222, soft = dark ? 0x3A3A3A : 0xD5D8DC, panel = dark ? 0x262626 : WHITE;
+    _TtFont *f = _tt_font(16, 0), *fb = _tt_font(15, 1);
+    for (int i = 0; i < _tt_ui.n; i++) {
+        _TtCtl *c = &_tt_ui.c[i];
+        if (!c->used) continue;
+        int x, y, w, h; _tt_ctl_box(c, &x, &y, &w, &h);
+        int hover = _tt.mx >= x && _tt.mx < x + w && _tt.my >= y && _tt.my < y + h;
+        unsigned long acc = c->accent;
+        if (top) {                                              /* the open list, on top of everything */
+            if (i != _tt_ui.open) continue;
+            int ly = y + h + 4, lh = 32, k = _tt_drop_item_at(_tt.mx, _tt.my);
+            _tt_rrect(d, x + 2, ly + 3, w, c->nopt * lh + 4, 8, dark ? 0x000000 : 0xBBBBBB, 1);     /* shadow */
+            _tt_rrect(d, x, ly, w, c->nopt * lh + 4, 8, panel, 1);
+            _tt_rrect(d, x, ly, w, c->nopt * lh + 4, 8, soft, 0);
+            for (int o = 0; o < c->nopt; o++) {
+                int oy = ly + 2 + o * lh;
+                if (o == k) _tt_rrect(d, x + 4, oy, w - 8, lh, 6, _tt_mix(acc, panel, 0.75f), 1);
+                _tt_str(d, f, x + 14, oy + (lh + f->asc - f->desc) / 2, o + 1 == c->val ? acc : ink, c->opts[o]);
+            }
+            continue;
+        }
+        if (c->kind == _TT_SLIDER) {
+            char num[24]; snprintf(num, sizeof num, "%d", c->val);
+            _tt_str(d, fb, x, y - 4, ink, c->label);
+            _tt_str(d, fb, x + w - _tt_tw(fb, num), y - 4, acc, num);
+            int ty = y + h / 2 - 3;
+            float k = c->max > c->min ? (float)(c->val - c->min) / (c->max - c->min) : 0;
+            int kx = x + _tt_round(k * w);
+            _tt_rrect(d, x, ty, w, 6, 3, soft, 1);
+            if (kx > x) _tt_rrect(d, x, ty, kx - x < 6 ? 6 : kx - x, 6, 3, acc, 1);
+            int r = (hover || _tt_ui.drag == i) ? 11 : 9;
+            _tt_rrect(d, kx - r, ty + 3 - r, r * 2, r * 2, r, WHITE, 1);
+            _tt_rrect(d, kx - r, ty + 3 - r, r * 2, r * 2, r, acc, 0);
+            _tt_rrect(d, kx - r + 1, ty + 4 - r, r * 2 - 2, r * 2 - 2, r - 1, acc, 0);
+        } else if (c->kind == _TT_CHECK) {
+            int bx = x, by = y + 2, s = 22;
+            if (c->val) {
+                _tt_rrect(d, bx, by, s, s, 5, hover ? _tt_shade(acc) : acc, 1);
+                XSetForeground(_tt.dpy, _tt.gc, WHITE);
+                XSetLineAttributes(_tt.dpy, _tt.gc, 3, LineSolid, CapRound, JoinRound);
+                XPoint p[3] = { { (short)(bx + 5), (short)(by + 11) }, { (short)(bx + 9), (short)(by + 16) }, { (short)(bx + 17), (short)(by + 6) } };
+                XDrawLine(_tt.dpy, d, _tt.gc, p[0].x, p[0].y, p[1].x, p[1].y);
+                XDrawLine(_tt.dpy, d, _tt.gc, p[1].x, p[1].y, p[2].x, p[2].y);
+                XSetLineAttributes(_tt.dpy, _tt.gc, 1, LineSolid, CapButt, JoinMiter);
+            } else {
+                _tt_rrect(d, bx, by, s, s, 5, panel, 1);
+                _tt_rrect(d, bx, by, s, s, 5, hover ? acc : soft, 0);
+                _tt_rrect(d, bx + 1, by + 1, s - 2, s - 2, 4, hover ? acc : soft, 0);
+            }
+            _tt_str(d, f, x + 32, y + (h + f->asc - f->desc) / 2, ink, c->label);
+        } else if (c->kind == _TT_TOGGLE) {
+            int sw = 48, sh = 26, sx = x, sy = y + 1;
+            _tt_rrect(d, sx, sy, sw, sh, sh / 2, c->val ? acc : soft, 1);
+            int kx = c->val ? sx + sw - sh + 3 : sx + 3;
+            _tt_rrect(d, kx, sy + 3, sh - 6, sh - 6, (sh - 6) / 2, WHITE, 1);
+            _tt_str(d, f, x + 58, y + (h + f->asc - f->desc) / 2, ink, c->label);
+        } else if (c->kind == _TT_DROP) {
+            _tt_str(d, fb, x, y - 6, ink, c->label);
+            _tt_rrect(d, x, y, w, h, 8, panel, 1);
+            _tt_rrect(d, x, y, w, h, 8, _tt_ui.open == i || hover ? acc : soft, 0);
+            if (c->nopt) _tt_str(d, f, x + 14, y + (h + f->asc - f->desc) / 2, ink, c->opts[c->val - 1]);
+            int ax = x + w - 22, ay = y + h / 2;                /* the little arrow */
+            XPoint p[3] = { { (short)(ax - 6), (short)(ay - 3) }, { (short)(ax + 6), (short)(ay - 3) }, { (short)ax, (short)(ay + 4) } };
+            if (_tt_ui.open == i) { p[0].y = p[1].y = (short)(ay + 3); p[2].y = (short)(ay - 4); }
+            XSetForeground(_tt.dpy, _tt.gc, ink);
+            XFillPolygon(_tt.dpy, d, _tt.gc, p, 3, Convex, CoordModeOrigin);
+        }
+    }
+}
+
 TT void _tt_set_cursor(int c) {
     if (c == _tt.cursor_now) return;
     _tt.cursor_now = c;
@@ -10771,15 +11244,23 @@ TT int _tt_handle(XEvent *e) {
             _tt.t[_tt.dragging].x = mouse_x() - _tt.dragdx;
             _tt.t[_tt.dragging].y = mouse_y() - _tt.dragdy;
         }
-        _tt_set_cursor(_tt_btn_under(_tt.mx, _tt.my) >= 0 ? 1 : _tt_in_tb(_tt.mx, _tt.my) ? 2 : 0);
+        if (_tt_ui.drag >= 0) _tt_slider_drag(&_tt_ui.c[_tt_ui.drag], _tt.mx);
+        _tt_set_cursor(_tt_btn_under(_tt.mx, _tt.my) >= 0 || _tt_ctl_at(_tt.mx, _tt.my) >= 0 || _tt_drop_item_at(_tt.mx, _tt.my) >= 0 ? 1 : _tt_in_tb(_tt.mx, _tt.my) ? 2 : 0);
         if (!_tt.loop_mode) _tt_refresh();
         break;
     case ButtonPress: {
         int mx = e->xbutton.x, my = e->xbutton.y;
         _tt.mx = mx; _tt.my = my;
         if (e->xbutton.button == 3) { _tt.rdown = 1; _tt.rtapped = 1; break; }
+        if (_tt_term.on && (e->xbutton.button == 4 || e->xbutton.button == 5)) {      /* mouse wheel scrolls the terminal */
+            _tt_term.scroll += e->xbutton.button == 4 ? 3 : -3;
+            if (_tt_term.scroll < 0) _tt_term.scroll = 0;
+            if (!_tt.loop_mode) _tt_refresh();
+            break;
+        }
         if (e->xbutton.button != 1) break;
         _tt_layout();
+        if (_tt_ui_press(mx, my)) { _tt.focus = 0; if (!_tt.loop_mode) _tt_refresh(); break; }
         if (_tt_in_tb(mx, my)) {
             if (!_tt.focus) memset(_tt.down, 0, sizeof _tt.down);
             _tt.focus = 1;
@@ -10814,7 +11295,7 @@ TT int _tt_handle(XEvent *e) {
         break;
     }
     case ButtonRelease:
-        if (e->xbutton.button == 1) { _tt.mdown = 0; _tt.dragging = -1; }
+        if (e->xbutton.button == 1) { _tt.mdown = 0; _tt.dragging = -1; if (_tt_ui.drag >= 0) { _tt_ui.drag = -1; if (!_tt.loop_mode) _tt_refresh(); } }
         if (e->xbutton.button == 3) _tt.rdown = 0;
         break;
     case KeyPress: {
@@ -10840,9 +11321,14 @@ TT int _tt_handle(XEvent *e) {
                 stop_sounds();
                 return 0;
             }
-        if ((ks == XK_Return || ks == XK_KP_Enter) && _tt_tb_visible()) {
+        if ((ks == XK_Return || ks == XK_KP_Enter) && _tt_tb_visible() && !_tt_term.reading) {
             _tt.focus = 1;
             memset(_tt.down, 0, sizeof _tt.down);
+            if (!_tt.loop_mode) _tt_refresh();
+            break;
+        }
+        if (_tt_term.reading) {                                     /* typing into the terminal */
+            _tt_term_key(&e->xkey, ks);
             if (!_tt.loop_mode) _tt_refresh();
             break;
         }
@@ -11142,6 +11628,9 @@ TT void new_screen(void) {
     _tt.dragging = -1;
     _tt.ntxt = 0;
     _tt_ld.on = _tt_ld.timed = 0;
+    for (int i = 0; i < _tt_ui.n; i++) _tt_ui.c[i].used = 0;
+    _tt_ui.n = 0; _tt_ui.open = _tt_ui.drag = -1;
+    _tt_term.on = 0;
     XSetForeground(_tt.dpy, _tt.gc, _tt.bg);
     XFillRectangle(_tt.dpy, _TT_CANVAS, _tt.gc, 0, 0, _tt.W, _tt.H);
     _tt_show();
