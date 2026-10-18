@@ -8237,6 +8237,7 @@ typedef struct {
     float size;
     unsigned long color;
     XPoint *fill;                    /* only while filling */
+    int layer, has_dim; float dim;   /* layer(thing, 80);  dim(thing, 0.5);  (0 = use the picture's) */
 } _TtTurtle;
 
 typedef struct {
@@ -8244,6 +8245,7 @@ typedef struct {
     unsigned char *frames; int nframes, *delays, total_ms; long start_ms;   /* gifs */
     void *video;                                                            /* videos */
     float size;                                                             /* size_all() remembers it here */
+    int layer; float dim;                                                   /* layer("x.png", 80);  dim("x.png", 0.5); */
 } _TtImage;
 typedef struct { int size, bold; void *xft; XFontStruct *core; int asc, desc; void *emoji; int emoji_tried; } _TtFont;
 typedef struct {
@@ -8783,8 +8785,21 @@ TT int _tt_pic_box(_TtImage *g, float cx, float cy, float sc, float ang, int *x0
 }
 
 /* draws picture g centered at pixel (cx, cy), scaled and turned (degrees, counter-clockwise) */
-TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip) {
+/* which layer a turtle is on: 1 = bottom ... 100 = top (pictures are 50 if you don't say) */
+TT int _tt_layer_of(int i) {
+    _TtTurtle *t = &_tt.t[i];
+    if (t->layer) return t->layer;
+    if (t->hud) return 101;                                    /* hearts and such stay on top */
+    if (t->img >= 0 && t->img < _tt.nimg && _tt.img[t->img].layer) return _tt.img[t->img].layer;
+    return 50;
+}
+TT float _tt_dim_of(_TtTurtle *t) {
+    if (t->has_dim) return t->dim;
+    return t->img >= 0 && t->img < _tt.nimg ? _tt.img[t->img].dim : 0;
+}
+TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float ang, int flip, float dim) {
     int x0, y0, x1, y1;
+    unsigned keep = dim <= 0 ? 256 : dim >= 1 ? 0 : (unsigned)((1 - dim) * 256);   /* 256 = normal, 0 = black */
     if (!_tt_pic_box(g, cx, cy, sc, ang, &x0, &y0, &x1, &y1)) return;
     if (x1 > im->width) x1 = im->width;
     if (y1 > im->height) y1 = im->height;
@@ -8804,12 +8819,14 @@ TT void _tt_blit(XImage *im, _TtImage *g, float cx, float cy, float sc, float an
             const unsigned char *s = g->px + ((size_t)iy * gw + ix) * 4;
             unsigned a = s[3];
             if (!a) continue;
-            if (a == 255) { row[px] = (row[px] & 0xFF000000u) | (uint32_t)s[0] << 16 | (uint32_t)s[1] << 8 | s[2]; continue; }
+            unsigned sr = s[0], sg = s[1], sb = s[2];
+            if (keep < 256) { sr = sr * keep >> 8; sg = sg * keep >> 8; sb = sb * keep >> 8; }
+            if (a == 255) { row[px] = (row[px] & 0xFF000000u) | sr << 16 | sg << 8 | sb; continue; }
             uint32_t d = row[px];
             unsigned na = 256 - a; a += 1;
-            unsigned dr = ((s[0] * a + ((d >> 16) & 255) * na) >> 8);
-            unsigned dg = ((s[1] * a + ((d >> 8) & 255) * na) >> 8);
-            unsigned db = ((s[2] * a + (d & 255) * na) >> 8);
+            unsigned dr = ((sr * a + ((d >> 16) & 255) * na) >> 8);
+            unsigned dg = ((sg * a + ((d >> 8) & 255) * na) >> 8);
+            unsigned db = ((sb * a + (d & 255) * na) >> 8);
             row[px] = (d & 0xFF000000u) | dr << 16 | dg << 8 | db;
         }
     }
@@ -8835,9 +8852,14 @@ TT int _tt_hit(int i, float x, float y) {
     if (t->flip) ix = g->w - 1 - ix;
     return g->px[(iy * g->w + ix) * 4 + 3] > 20;
 }
-TT int _tt_turtle_at(float x, float y) {
-    for (int i = _tt.nt - 1; i >= 0; i--) if (_tt_hit(i, x, y)) return i;
-    return -1;
+TT int _tt_turtle_at(float x, float y) {                    /* the one on top wins */
+    int best = -1, best_layer = -1;
+    for (int i = _tt.nt - 1; i >= 0; i--)
+        if (_tt_hit(i, x, y)) {
+            int l = _tt.t[i].look == _TT_PIC ? _tt_layer_of(i) : 200;
+            if (l > best_layer) { best_layer = l; best = i; }
+        }
+    return best;
 }
 
 /* ============================================================ */
@@ -9217,10 +9239,14 @@ TT void _tt_refresh(void) {
                     memcpy(frame->data + yy * frame->bytes_per_line + x * 4, base->data + yy * base->bytes_per_line + x * 4, (size_t)w * 4);
             }
             if (nspan) {
-                for (int i = 0; i < _tt.nt; i++) {
-                    _TtTurtle *t = &_tt.t[i];
-                    if (t->look == _TT_PIC)
-                        _tt_blit(frame, &_tt.img[t->img], _tt.W / 2.0f + t->x, _tt.H / 2.0f - t->y, t->size, _tt_pic_angle(t), t->flip);
+                static int order[_TT_MAXT];                           /* bottom layer first, top layer last */
+                int cnt[104] = {0}, no = 0;
+                for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].look == _TT_PIC) { cnt[_tt_layer_of(i) + 1]++; no++; }
+                for (int l = 1; l < 104; l++) cnt[l] += cnt[l - 1];
+                for (int i = 0; i < _tt.nt; i++) if (_tt.t[i].look == _TT_PIC) order[cnt[_tt_layer_of(i)]++] = i;
+                for (int k = 0; k < no; k++) {
+                    _TtTurtle *t = &_tt.t[order[k]];
+                    _tt_blit(frame, &_tt.img[t->img], _tt.W / 2.0f + t->x, _tt.H / 2.0f - t->y, t->size, _tt_pic_angle(t), t->flip, _tt_dim_of(t));
                 }
                 for (int k = 0; k < nspan; k++) {
                     int y = whole ? 0 : span[k][0] * T, h = whole ? _tt.H : (y + T > _tt.H ? _tt.H - y : T);
@@ -9782,7 +9808,7 @@ TT void _tt_image4(const char *file, double x, double y, double scale) {
     XImage *im = XGetImage(_tt.dpy, _tt.canvas, x0, y0, (unsigned)(x1 - x0), (unsigned)(y1 - y0), AllPlanes, ZPixmap);
     if (!im) return;
     if (im->bits_per_pixel == 32) {
-        _tt_blit(im, g, _tt.W / 2.0f + (float)x - x0, _tt.H / 2.0f - (float)y - y0, (float)scale, 0, 0);
+        _tt_blit(im, g, _tt.W / 2.0f + (float)x - x0, _tt.H / 2.0f - (float)y - y0, (float)scale, 0, 0, g->dim);
         XPutImage(_tt.dpy, _TT_CANVAS, _tt.gc, im, 0, 0, x0, y0, (unsigned)(x1 - x0), (unsigned)(y1 - y0));
     }
     XDestroyImage(im);
@@ -9942,6 +9968,45 @@ TT void _tt_move_to4(Thing th, double x, double y, double speed) { _tt_glide(th,
 TT void _tt_move_to3(double x, double y, double speed) { _tt_move_to4(_tt_it(), x, y, speed); }
 TT void _tt_move_to2(double x, double y) { _tt_move_to4(_tt_it(), x, y, 5); }
 #define move_to(...) _TT_PICK4(__VA_ARGS__, _tt_move_to4, _tt_move_to3, _tt_move_to2, 0)(__VA_ARGS__)
+
+/* ============================================================ */
+/* LAYERS AND DIMMING  (only if you want them)                  */
+/*                                                              */
+/*   layer("sky.png", 1);        1 = at the very bottom         */
+/*   layer("player.png", 100);   100 = on top of everything     */
+/*                               (pictures are 50 if you don't say) */
+/*   dim("tree.png", 0.5);       0.0 = normal ... 1.0 = pitch black */
+/*                                                              */
+/*   That changes EVERY picture with that name (also ones made later). */
+/*   Just one:  Thing cat = add_image("cat.png", 0, 0);  layer(cat, 80);  dim(cat, 0.3); */
+/*   Inside an image(...) { } block:  layer(80);  dim(0.3);     */
+/* ============================================================ */
+TT int _tt_layer_num(int n) { return n < 1 ? 1 : n > 100 ? 100 : n; }
+TT float _tt_dim_num(double d) { return d < 0 ? 0 : d > 1 ? 1 : (float)d; }
+TT void _tt_layer_file(const char *file, int n) {
+    _tt_check();
+    int g = _tt_image(file);
+    if (g >= 0 && g < _tt.nimg) _tt.img[g].layer = _tt_layer_num(n);
+    _tt_show();
+}
+TT void _tt_layer_thing(Thing th, int n) { if (th >= 0 && th < _tt.nt) _tt.t[th].layer = _tt_layer_num(n); _tt_show(); }
+TT void _tt_layer_here(int n) { _tt_layer_thing(_tt_it(), n); }
+#define _tt_layer2(who, n) _Generic((who), char *: _tt_layer_file, const char *: _tt_layer_file, default: _tt_layer_thing)((who), (n))
+#define layer(...) _TT_PICK2(__VA_ARGS__, _tt_layer2, _tt_layer_here, 0)(__VA_ARGS__)
+
+TT void _tt_dim_file(const char *file, double amount) {
+    _tt_check();
+    int g = _tt_image(file);
+    if (g >= 0 && g < _tt.nimg) _tt.img[g].dim = _tt_dim_num(amount);
+    _tt_show();
+}
+TT void _tt_dim_thing(Thing th, double amount) {
+    if (th >= 0 && th < _tt.nt) { _tt.t[th].dim = _tt_dim_num(amount); _tt.t[th].has_dim = 1; }
+    _tt_show();
+}
+TT void _tt_dim_here(double amount) { _tt_dim_thing(_tt_it(), amount); }
+#define _tt_dim2(who, a) _Generic((who), char *: _tt_dim_file, const char *: _tt_dim_file, default: _tt_dim_thing)((who), (a))
+#define dim(...) _TT_PICK2(__VA_ARGS__, _tt_dim2, _tt_dim_here, 0)(__VA_ARGS__)
 
 TT void _tt_move_by4(Thing th, double dx, double dy, double speed) { _TT_TH(th); _tt_move_to4(th, _tt.t[th].x + dx, _tt.t[th].y + dy, speed); }
 TT void _tt_move_by3(double dx, double dy, double speed) { _tt_move_by4(_tt_it(), dx, dy, speed); }

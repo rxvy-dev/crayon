@@ -316,6 +316,43 @@ repeat(5) { forward(150); right(144); }
 
 <img src="screenshots/pictures.png" width="520">
 
+### Layers and dimming (only if you want them)
+
+Pick which picture goes on top. **1 = the very bottom, 100 = on top of everything.**
+If you don't say, pictures are 50 and the newest one goes on top.
+
+```c
+layer("background.png", 1);     // all the way at the back
+layer("player.png", 100);       // always on top
+layer("tree.png", 60);          // above normal stuff, under the player
+```
+
+Make a picture darker. **0.0 = normal, 0.5 = half dark, 1.0 = pitch black.**
+
+```c
+dim("tree.png", 0.5);
+dim("ghost.png", 1.0);          // a black shadow
+dim("ghost.png", 0.0);          // back to normal
+```
+
+Using the file name changes **every** picture with that name, including ones made later (spawned coins, bullets...).
+To change just one:
+
+```c
+Thing cat = add_image("cat.png", 0, 0);
+layer(cat, 90);
+dim(cat, 0.3);
+
+image("dog.png", 100, 0) {      // or inside a block
+    layer(5);
+    dim(0.7);
+}
+```
+
+Clicking and dragging always grabs the picture on top.
+
+<img src="screenshots/layers.png" width="520">
+
 ## Boxes
 
 Give two corners and a color: the **bottom-left** corner, then the **top-right** corner.
@@ -724,7 +761,7 @@ color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size
 box(x1, y1, x2, y2, "color", round)  box_outline("color", thick)  box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
 clear()  new_screen()
 arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
-image("x.png", x, y)  image("x.png", x, y, scale)
+image("x.png", x, y)  image("x.png", x, y, scale)  layer("x.png", 1-100)  dim("x.png", 0.0-1.0)  layer(thing, n)  dim(thing, n)
 image("x.png/.gif/.mp4", x, y) { }  sound("x.mp3")  stop_sounds()  label("...", x, y) { }  move_to(x, y, speed)  move_by(dx, dy, speed)  lt(deg)  rt(deg)  spin(deg)
 rotate(deg)  rotate_to(deg)  place(x, y)  resize(n)  glide(x, y, speed)  start_spin(deg, speed)  stamp("x.png", x, y)
 add_image("x.png", x, y)  add_text("...", x, y)  change_text(t, "...")  things_touch(a, b)  drag_thing(t)
