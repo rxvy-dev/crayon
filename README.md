@@ -1,42 +1,109 @@
+<div align="center">
+
 # 🖍️ crayon.h
 
-**Website:** see `docs/` (turn on GitHub Pages to host it).
-
 **The easiest way to draw, make games and make apps in C.**
-One file. No setup. No libraries to link. Just `#include` it and go.
+
+One header file. No setup. Nothing to link. Just `#include` it and go.
+
+![C](https://img.shields.io/badge/language-C-blue)
+![Linux](https://img.shields.io/badge/Linux-X11%20%7C%20Wayland-orange)
+![Single header](https://img.shields.io/badge/single-header-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+
+</div>
+
+```c
+#include "crayon.h"
+
+void start(void) { type_text_center("{lime}Let's go!", 0, -40); }
+
+int main(void) {
+    window(800, 500);
+    background("black");
+    textsize(40);
+    text_center("{party}Hello from crayon!", 0, 120);   // moving rainbow text
+    image("turtle.png", 0, 30, 2);                     // a picture, twice as big
+    button("Play", 0, -120, start);                    // click it -> start() runs
+}
+```
 
 ```sh
 gcc main.c -o main && ./main
 ```
+
+<img src="screenshots/hero.png" width="560">
+
+That's the whole program. No event loop, no setup code, no cleanup. The window stays open by itself.
+
+![crayon in action](screenshots/effects.gif)
+
+---
+
+## Contents
+
+**Start:** [Install](#install) · [Your first program](#your-first-program) · [Share ONE file](#-share-one-file-bundle) · [Why crayon?](#why-crayon)
+
+**Basics:** [Coordinates](#coordinates-where-things-go) · [Colors](#colors) · [Text](#text) · [Moving & typing text](#moving-text-and-typing-text) · [Drawing](#drawing) · [Boxes](#boxes) · [Pictures, GIFs, videos & sound](#pictures-gifs-videos-and-sound) · [Moving pictures](#moving-and-turning-pictures) · [Layers & dimming](#layers-and-dimming)
+
+**Apps:** [Buttons](#buttons-and-links) · [Asking things](#asking-the-user-things) · [Terminal](#terminal) · [Sliders, checkboxes, dropdowns](#sliders-checkboxes-switches-and-dropdowns) · [Loading bars](#loading-bars) · [Pages](#pages) · [Running commands](#running-commands)
+
+**Games:** [Easy games](#easy-games-no-loops) · [Enemies & health](#enemies-health-and-hearts) · [Games with `forever`](#games-with-forever)
+
+**More:** [Fullscreen](#fullscreen-and-closing) · [Examples](#examples) · [Speed](#speed) · [Requirements](#requirements) · [Cheat sheet](#cheat-sheet)
+
+---
+
+## Install
+
+Download [`crayon.h`](crayon.h). Then pick one:
+
+**Keep it next to your code.** Put `crayon.h` in the same folder as your `.c` file:
+
+```c
+#include "crayon.h"
+```
+
+**Or install it once and use it from any folder:**
+
+```sh
+sudo cp crayon.h /usr/local/include/
+```
+
+```c
+#include <crayon.h>
+```
+
+Compile with plain gcc. No `-lX11`, no `-lm`, no CMake:
+
+```sh
+gcc main.c -o main && ./main
+```
+
+You don't need `#include <stdio.h>` or `<string.h>`, because crayon already includes them.
+
+## Your first program
 
 ```c
 #include "crayon.h"
 
 int main(void) {
     window(600, 400);
-    arrow();
+    arrow();                  // show the pen as an arrow
 
-    forward(100);
-    right(90);
-    forward(100);
-    right(90);
-    forward(100);
-    right(90);
-    forward(100);
-    right(90);
+    repeat(4) {               // a square
+        forward(100);
+        right(90);
+    }
 }
 ```
 
 <img src="screenshots/square.png" width="420">
 
-That's the whole program. No event loop, no setup code, no cleanup. The window stays open by itself.
-
----
-
 ## 🔥 Share ONE file: `bundle()`
 
-This is the peak feature. Put one `bundle()` line at the top for each picture, gif, video or sound you use,
-and gcc packs them **inside** your program. Share just the program - no folder of files next to it.
+The peak feature. Put one `bundle()` line at the top for each picture, gif, video or sound,
+and gcc packs them **inside** your program. Send just the program. No folder of files next to it.
 
 ```c
 #include "crayon.h"
@@ -44,12 +111,10 @@ and gcc packs them **inside** your program. Share just the program - no folder o
 bundle("turtle.png");       // one line per file, at the top, outside main
 bundle("coin.png");
 bundle("music.mp3");
-bundle("intro.mp4");
 
 int main(void) {
     window(800, 600);
-    image("intro.mp4", 0, 0);       // your code stays exactly the same
-    sound("music.mp3");
+    sound("music.mp3");     // the rest of your code stays exactly the same
     player("turtle.png");
     spawn("coin.png", 5);
 }
@@ -61,39 +126,13 @@ gcc game.c -o game     # compile in the folder where the files are
 ```
 
 - The name in `bundle("...")` must match exactly what you use in `image()`, `sound()`, `player()` and so on.
-- Works for png, jpg, gif, webp, mp4/webm/mkv, mp3/wav/ogg - anything.
-- Videos, webp and sound still need `ffmpeg` installed on the computer that runs it.
-
-## Install
-
-**Option 1 — keep it next to your code.** Put `crayon.h` in the same folder as your `.c` file and use quotes:
-
-```c
-#include "crayon.h"
-```
-
-**Option 2 — install it once, use it everywhere.** Then you can use `<crayon.h>` from any folder:
-
-```sh
-sudo cp crayon.h /usr/local/include/
-```
-
-```c
-#include <crayon.h>
-```
-
-> `<crayon.h>` with angle brackets only works if it's installed (option 2), or if you compile with
-> `gcc main.c -o main -I.` &nbsp;•&nbsp; You don't need `#include <stdio.h>` or `<string.h>` — crayon already includes them.
-
-Put your `.png` pictures in the folder you run the program from.
-
----
+- Works for anything: png, jpg, gif, webp, mp4, webm, mp3, wav, ogg...
+- Videos, webp and sound still need `ffmpeg` on the computer that runs it.
 
 ## Why crayon?
 
-Most C graphics libraries make you write 50 lines before you see a single pixel —
-create a renderer, load fonts, write an event loop, free everything at the end.
-
+Most C graphics libraries make you write 50 lines before you see one pixel:
+make a renderer, load fonts, write an event loop, free everything at the end.
 With crayon you write what you **mean**:
 
 | You want to... | You write |
@@ -102,58 +141,32 @@ With crayon you write what you **mean**:
 | show a picture | `image("cat.png", 0, 0);` |
 | write colorful text | `text("{red}Hi {blue}there", 0, 0);` |
 | ask a question | `name = userinput("Your name?");` |
-| make a button | `button("Play", 0, -100, play);` |
-| move a character | `key(UP) forward(4);` |
-
-It's only one header file, and it builds with plain `gcc` — no `-lX11`, no `-lpng`, no CMake.
+| make a button | `button("Play", 0, -100, start);` |
+| make a game | `player("me.png"); spawn("coin.png", 5);` |
+| make a terminal | `terminal("$ "); on_command("hi", hi);` |
 
 ---
 
-## Fullscreen
+# Basics
 
-```c
-fullscreen();              // use instead of window(): your whole screen, no bars or borders
-exit_key(ESC);             // optional: this key closes it (add more: exit_key('q');)
+## Coordinates (where things go)
 
-image("clip.mp4", 0, 0);   // a video, and keyboard mashing won't close it
-```
-
-Without `exit_key()`, no key closes the program, which is handy for kiosks or a video your cat can smash keys on.
-Your system's own close shortcut (like Alt+F4 or your compositor's kill bind) still works.
-
-Close it from your code with `quit();` (for example `button("Quit", 0, -100, quit);` or `wait_for(5); quit();`).
-
-`window_width()`, `window_height()`, `left_edge()`, `right_edge()`, `top_edge()`, `bottom_edge()` tell you where the edges are.
-
-## Where things go (coordinates)
-
-The middle of the window is **(0, 0)**. **x** goes right (negative = left), **y** goes up (negative = down).
-A `window(800, 500)` goes from **-400 to 400** across and **-250 to 250** up and down.
-
-```c
-window(800, 500);
-grid();          // draws the numbers on screen
-show_coords();   // shows where your mouse is - hover where you want something, copy the numbers
-```
-
-<img src="screenshots/place.png" width="560">
+The middle of the window is **(0, 0)**. **x** goes right (negative = left). **y** goes up (negative = down).
+A `window(800, 500)` goes from **-400 to 400** across and from **-250 to 250** up and down.
 
 Every function that puts something on screen takes the **x, y** after the words:
 
 ```c
 text("Hello", -300, 200);              // words start at (-300, 200)
 text_center("Title", 0, 200);          // words centered on (0, 200)
-button("Play", 0, -100, play);         // button centered on (0, -100)
+button("Play", 0, -100, start);        // button centered on (0, -100)
 image("logo.png", 0, 150);             // picture centered on (0, 150)
-inputbox("Type...", 0, -200, 500, fn); // box centered on (0, -200), 500 wide
-userinput("?:", 0, 50);                // ask, with the box centered on (0, 50)
+userinput("Name?", 0, 50);             // input box centered on (0, 50)
 ```
 
-### Debug: `coords()`
-
-Put `coords();` anywhere and you get lines every 50, **on top of everything**, with the numbers
-on all 4 sides like a times table (x on the top and bottom, y on the left and right, each corner shows its own x,y),
-plus the mouse's exact x, y next to it. Hover where you want something, copy the numbers, then delete the line.
+**Not sure where something goes?** Add `coords();`. You get lines every 50 on top of everything,
+numbers on all 4 sides like a times table (each corner shows its own x,y), and the mouse's exact x, y next to it.
+Hover where you want something, copy the numbers, then delete the line.
 
 ```c
 coords();        // lines every 50
@@ -163,49 +176,142 @@ coords_off();    // hide them
 
 <img src="screenshots/coords-grid.png" width="560">
 
-## Buttons anywhere
+## Colors
+
+Anywhere you give a color, use a **name** or a **hex code**:
 
 ```c
-void hi(void) {                         // what happens when it's clicked
-    text_center("{green}You clicked a button!", 0, 40);
-}
+color("red");                          // a name
+background("navy");
+text("{pink}hi {lime}there", 0, 0);    // names inside text too
 
-int main(void) {
-    window(800, 500);
-
-    button("Top left",     -320,  190, hi);
-    button("Top right",     320,  190, hi);
-    button("Middle",          0,    0, hi);
-    button("Bottom left",  -320, -190, hi);
-    button("Bottom right",  320, -190, hi);
-}
+color("#ff8800");                      // a hex code = an exact shade
+text("{#ff8800}orange words", 0, 0);
 ```
 
-- `button("words", x, y, function)` — the function runs every time it's clicked.
-- `button_color("blue", "white");` — set the colors **before** making the button.
-- `textsize(20);` before a button makes its words bigger.
-- `link("words", x, y, function)` — same thing, but it looks like clickable text.
-- `remove_button("words");` — takes it away. `new_screen();` removes everything.
+**Names:** red, green, blue, yellow, orange, purple, pink, cyan, brown, black, white, gray, darkgray,
+lightgray, sky, grass, navy, lime, gold, teal, magenta, violet, darkgreen, darkblue, darkred,
+lightblue, lightgreen, beige, silver, maroon, olive, linkblue, tomato, brightred
 
-Want to wait for a click instead of using a function?
+**Hex codes** are `#` + 6 characters: two for red, two for green, two for blue, each from `00` (none) to `ff` (full).
+`"#ff0000"` is pure red and `"#ffffff"` is white. Copy one from any color picker.
+
+## Text
 
 ```c
-button("Yes", -60, 0);
-button("No", 60, 0);
-const char *b = wait_button();          // waits, then gives back the words on the button
-if (same(b, "Yes")) text("yay", 0, -60);
+text("Hello", -200, 100);                         // words, x, y (x, y = where the words start)
+text_center("Title", 0, 150);                     // x, y = the middle of the words
+text("{red}G{yellow}o{blue}o{green}d", 0, 0);     // a color for each part
+text("{rainbow}Rainbow!", 0, -50);                // every letter a different color
+text("Score: %d", -200, 150, score);              // numbers inside, like printf
+text("Hi 😀 🐢 🔥", 0, -100);                       // emoji work (in text and buttons)
+text_center("{red}Title\nunder it", 0, 0);        // \n = new line (the color carries over)
+
+textsize(40);                                     // bigger text from now on
+bold(1);                                          // bold on (bold(0) = off)
 ```
 
-## Move and turn pictures and text
+`\n` works everywhere text goes: `text`, `text_center`, `label`, buttons, links, `type_text` and loading bars.
 
-Put `{ }` after a picture or text, and everything inside moves **that** picture:
+## Moving text and typing text
+
+**Moving text:** put a tag in front of the words, just like a color:
+
+```c
+text("{party}PARTY TIME", 0, 100);       // a rainbow that MOVES
+text("{wave}hello there", 0, 50);        // letters go up and down like a wave
+text("{shake}{red}DANGER", 0, 0);        // shaky scary letters
+text("{blink}press start", 0, -50);      // blinks on and off
+text("{pulse}{cyan}glowing", 0, -100);   // fades in and out
+text("{wave}wavy {still}not wavy", 0, -150);   // {still} stops the moving
+```
+
+**Typing text:** the letters show up one at a time, then your next line runs:
+
+```c
+type_text("Hello traveler...", -300, 100);             // x, y = where it starts
+type_text_center("{red}Welcome to my game!", 0, 0);   // x, y = the middle
+type_speed(60);                                         // faster (30 letters a second is normal)
+```
+
+Clicking or pressing SPACE or ENTER shows the rest right away.
+
+## Drawing
+
+crayon has a pen you move around. It draws a line wherever it goes.
+
+```c
+speed(0);                 // draw instantly (1 = slow ... 10 = fast)
+color("red");
+thickness(4);
+
+forward(120);             // a line
+right(90);                // turn
+repeat(4) { forward(80); right(90); }      // a square
+
+go_to(-200, 100);         // jump somewhere (doesn't draw)
+walk_to(150, 50);         // a line from here to (150, 50)
+circle(50);               // a circle
+dot(40);                  // a filled dot
+
+begin_fill();             // a filled triangle
+repeat(3) { forward(90); left(120); }
+end_fill();
+
+penup();                  // move without drawing
+pendown();                // draw again
+clear();                  // erase everything
+```
+
+<img src="screenshots/draw.png" width="560">
+
+The pen is invisible until you show it: `arrow();` shows an arrow and `picture("cat.png");` makes the pen a picture.
+A picture pen only draws lines after `pendown();`.
+
+## Boxes
+
+Give the **bottom-left** corner, the **top-right** corner and a color:
+
+```c
+box(-300, -150, -100, 100, "red");        // from (-300, -150) to (-100, 100)
+box_outline("black", 4);                  // a border around the box you just made, 4 thick
+
+box(50, 50, 300, 200, "blue", 25);        // last number = round corners (25 = how round)
+box_outline("navy", 3);                   // the border follows the round corners
+
+box_outline(-350, 150, -150, 220, "purple", 2);   // a border on its own, anywhere
+```
+
+<img src="screenshots/boxes.png" width="560">
+
+## Pictures, GIFs, videos and sound
+
+```c
+image("cat.png", 0, 0);           // picture with its middle at (0, 0): png, jpg, bmp, tga, psd
+image("cat.png", 200, 0, 2);      // twice as big (0.5 = half size)
+image("dance.gif", -200, 0);      // GIFs play their animation
+image("clip.mp4", 0, -150);       // videos play and loop: mp4, webm, mkv, mov, avi (and webp)
+sound("music.mp3");               // play a sound: mp3, wav, ogg, or a video's sound
+stop_sounds();
+```
+
+<img src="screenshots/gallery.png" width="520">
+
+- Videos, webp and sound use `ffmpeg` (`sudo pacman -S ffmpeg` or `sudo apt install ffmpeg`).
+- Videos have no sound by themselves. Add `sound("clip.mp4");` to hear it.
+- A **pink and black box** means crayon couldn't open the file, and the terminal says why.
+  Usually the file isn't in the folder you ran the program from.
+- The file name can come from a variable, like `image(userinput("Which picture?"), 0, 0);`.
+
+## Moving and turning pictures
+
+Put `{ }` after a picture or text, and everything inside moves **that** thing:
 
 ```c
 image("turtle.png", -300, 0) {
     move_to(300, 0);        // slide to (300, 0)
     lt(90);                 // turn left 90
     move_by(0, 100, 8);     // go up 100, at speed 8
-    rt(180);                // turn right 180
     spin(360, 12);          // spin all the way around, fast
 }
 
@@ -213,11 +319,9 @@ label("{rainbow}Hello! 🐢", 0, -200) {   // label = text you can move
     move_to(0, -100);
     rt(20);                 // tilt it
 }
-
-image("star.png", -300, 150);            // no { } = just show it
 ```
 
-| inside `{ }` | does |
+| inside `{ }` | what it does |
 |---|---|
 | `move_to(x, y)` / `move_to(x, y, speed)` | slide to a spot |
 | `move_by(100, 0)` / `move_by(dx, dy, speed)` | slide 100 to the right |
@@ -229,9 +333,7 @@ image("star.png", -300, 150);            // no { } = just show it
 | `glide(x, y, speed)` / `start_spin(deg, speed)` | start moving but **don't wait** |
 | `wait_for(1)` | pause a second |
 
-Speed: `1` = slow, `5` = normal (the default), `20` = fast, `0` = instant.
-Everything waits until it's done, except `glide` and `start_spin` — use those to move two things at the same time.
-Loops work inside too: `repeat(3) { move_by(100, 0); move_by(-100, 0); }`
+Speed: `1` = slow, `5` = normal, `20` = fast, `0` = instant. Everything waits until it's done, except `glide` and `start_spin`.
 
 **Want to move it again later?** Give it a name:
 
@@ -240,330 +342,113 @@ Thing cat = add_image("cat.png", 0, 0);
 Thing score = add_text("Score: 0", -300, 200);
 
 move_to(cat, 300, 0, 5);           // the name goes first
-rt(90);                            // (lt/rt/spin with no name move the last thing you made)
 change_text(score, "Score: %d", 10);
 if (things_touch(cat, score)) { ... }
 drag_thing(cat);                   // drag it with the mouse
 ```
 
-See `move.c`.
+## Layers and dimming
 
-## Draw
-
-```c
-window(800, 500);
-speed(0);                 // draw instantly (1 = slow ... 10 = fast)
-
-go_to(-350, 150);         // jump somewhere (doesn't draw)
-color("red");
-thickness(4);
-forward(120);             // a line
-
-repeat(4) { forward(80); right(90); }      // a square
-
-begin_fill();                               // a filled triangle
-repeat(3) { forward(90); left(120); }
-end_fill();
-
-walk_to(150, 50);         // a line from here to (150, 50)
-circle(50);               // a circle
-dot(40);                  // a filled dot
-
-box(-200, -100, 200, 100, "red");          // a box from bottom-left (-200, -100) to top-right (200, 100)
-box(-200, -100, 200, 100, "red", 15);      // ...with round corners (15 = how round)
-box_outline("black");                      // a border around the box you just made
-box_outline("black", 4);                   // ...4 thick
-box_outline(-200, -100, 200, 100, "white"); // or a border anywhere
-box(-280, -130, 140, 70);                  // no color = x, y (the middle), width, height, uses color()
-round_box(-80, -130, 140, 70, 20);         // with round corners
-outline(120, -130, 140, 70, 10);           // just the border
-
-image("turtle.png", 300, -130);            // a picture
-background("sky");                         // whole window color
-clear();                                   // erase everything
-```
-
-<img src="screenshots/draw.png" width="560">
-
-Want to see the pen? Call `arrow();` (or `picture("cat.png");` to make the pen a picture).
-Leave it out and the pen is invisible.
-
-## Pictures, GIFs and videos
-
-```c
-image("cat.png", 0, 0);           // png, jpg, bmp, tga, psd - built in
-image("dance.gif", 200, 0);       // GIFs play their animation
-image("clip.mp4", -200, 0);       // videos play (and loop) - mp4, webm, mkv, mov, avi
-image("photo.webp", 0, -150);     // webp works too
-sound("music.mp3");               // play a sound (mp3, wav, ogg - or a video's sound)
-stop_sounds();
-```
-
-GIFs and videos can move and turn like any picture: `image("dance.gif", 0, 0) { move_to(300, 0); }`
-
-Videos, webp and sound use `ffmpeg` (`sudo pacman -S ffmpeg` / `sudo apt install ffmpeg`).
-Videos have no sound by themselves - add `sound("clip.mp4");` to hear it.
-Big videos are shrunk to fit the window.
-
-If a picture shows up as a **pink and black box**, crayon couldn't open it - the terminal says why.
-Usually the file isn't in the folder you ran the program from, or it's not really the type its name says.
-
-### More about pictures
-
-```c
-image("cat.png", 100, 50);        // picture with its middle at (100, 50)
-image("cat.png", 100, 50, 2);     // twice as big
-image("cat.png", 100, 50) {       // ...and move it (see "Move and turn" below)
-    move_to(300, 50);
-    rt(90);
-}
-```
-
-<img src="screenshots/gallery.png" width="520">
-
-Or turn the pen itself into a picture — it still moves with `forward`, `left` and `right`:
-
-```c
-picture("turtle.png");
-repeat(5) { forward(150); right(144); }
-```
-
-<img src="screenshots/pictures.png" width="520">
-
-### Layers and dimming (only if you want them)
-
-Pick which picture goes on top. **1 = the very bottom, 100 = on top of everything.**
+Pick which picture goes on top: **1 = the very bottom, 100 = on top of everything.**
 If you don't say, pictures are 50 and the newest one goes on top.
 
 ```c
 layer("background.png", 1);     // all the way at the back
 layer("player.png", 100);       // always on top
-layer("tree.png", 60);          // above normal stuff, under the player
 ```
 
-Make a picture darker. **0.0 = normal, 0.5 = half dark, 1.0 = pitch black.**
+Make a picture darker: **0.0 = normal, 0.5 = half dark, 1.0 = pitch black.**
 
 ```c
 dim("tree.png", 0.5);
 dim("ghost.png", 1.0);          // a black shadow
-dim("ghost.png", 0.0);          // back to normal
 ```
 
-Using the file name changes **every** picture with that name, including ones made later (spawned coins, bullets...).
-To change just one:
-
-```c
-Thing cat = add_image("cat.png", 0, 0);
-layer(cat, 90);
-dim(cat, 0.3);
-
-image("dog.png", 100, 0) {      // or inside a block
-    layer(5);
-    dim(0.7);
-}
-```
-
-Clicking and dragging always grabs the picture on top.
+The file name changes **every** picture with that name, even ones made later. For just one:
+`Thing cat = add_image("cat.png", 0, 0); layer(cat, 90); dim(cat, 0.3);`
 
 <img src="screenshots/layers.png" width="520">
 
-## Boxes
+---
 
-Give two corners and a color: the **bottom-left** corner, then the **top-right** corner.
+# Apps
 
-```c
-box(-300, -150, -100, 100, "red");        // from (-300, -150) to (-100, 100)
-box_outline("black", 4);                  // a border around the box you just made, 4 thick
-
-box(50, 50, 300, 200, "blue", 25);        // last number = round corners (25 = how round)
-box_outline("navy", 3);                   // the border follows the round corners
-
-box(-50, -200, 250, -80, "gold", 40);
-box_outline("black");                     // no thickness = thin border
-
-box_outline(-350, 150, -150, 220, "purple", 2);   // a border on its own, anywhere
-```
-
-<img src="screenshots/boxes.png" width="560">
-
-| code | what it does |
-|---|---|
-| `box(x1, y1, x2, y2, "color")` | filled box from one corner to the other |
-| `box(x1, y1, x2, y2, "color", round)` | same with round corners |
-| `box_outline("color")` | border around the last box (same roundness) |
-| `box_outline("color", thick)` | thicker border |
-| `box_outline(x1, y1, x2, y2, "color", thick)` | a border anywhere |
-
-Turn on `grid();` to see the numbers while you place boxes. The corners can be in any order.
-`box(x, y, width, height)` with no color still works the old way (x, y = the middle, uses `color()`).
-
-## Colors
-
-Anywhere you give a color, you can use a **name** or a **hex code**:
+## Buttons and links
 
 ```c
-color("red");                          // a name
-background("navy");
-box(-100, -50, 100, 50, "gold");
-text("{pink}hi {lime}there", 0, 0);    // names inside text too
+void hi(void) {                          // what happens when it's clicked
+    text_center("{green}You clicked!", 0, 40);
+}
 
-color("#ff8800");                      // a hex code = an exact shade (orange)
-background("#1b1b2f");                 // dark navy
-box(-100, -50, 100, 50, "#3498db");    // a nice blue
-text("{#ff8800}orange words", 0, 0);
-```
-
-**Names:** red, green, blue, yellow, orange, purple, pink, cyan, brown, black, white, gray, darkgray,
-lightgray, sky, grass, navy, lime, gold, teal, magenta, violet, darkgreen, darkblue, darkred,
-lightblue, lightgreen, beige, silver, maroon, olive, linkblue, tomato, brightred
-
-**Hex codes** are `#` + 6 characters: two for red, two for green, two for blue, each from `00` (none) to `ff` (full).
-`"#ff0000"` is pure red, `"#00ff00"` pure green, `"#ffffff"` white, `"#000000"` black.
-Pick any color in a color picker (GIMP, a website, your editor) and copy its hex code.
-
-## Colorful text
-
-```c
-text("Hello", -200, 100);                         // words, x, y
-text("{red}G{yellow}o{blue}o{green}d", 0, 0);     // a color for each part
-text("{rainbow}Rainbow!", 0, -50);                // every letter a different color
-text("Hi 😀 🐢 🔥", 0, -100);                       // emoji work too (in text and buttons)
-text("Score: %d", -200, 150, score);              // numbers inside
-text_center("Title", 0, 150);                     // centered on x, y
-text("line one\nline two", 0, 100);               // \n = new line
-text_center("{red}Title\nunder it", 0, 0);     // \n works everywhere: text_center, label, add_text,
-                                                  // buttons, links, type_text, loading bars (colors carry over)
-textsize(40);
-bold(1);
-```
-
-## ✨ Moving text, typing text and loading bars
-
-![moving text, typing and loading bars](screenshots/effects.gif)
-
-**Moving text**: put a tag in front of the words, just like a color:
-
-```c
-text("{party}PARTY TIME", 0, 100);       // a rainbow that MOVES
-text("{wave}hello there", 0, 50);        // letters go up and down like a wave
-text("{shake}{red}DANGER", 0, 0);        // shaky scary letters
-text("{blink}press start", 0, -50);      // blinks on and off
-text("{pulse}{cyan}glowing", 0, -100);   // fades in and out
-text("{wave}wavy {still}not wavy", 0, -150);   // {still} stops the moving
-```
-
-Mix them with colors (`{wave}{red}`) and use them anywhere text goes: `text`, `text_center`, `type_text`, loading bars.
-
-**Typing text**: the letters show up one at a time, then your next line runs:
-
-```c
-type_text("Hello traveler...", -300, 100);              // x, y = where it starts
-type_text_center("{red}Welcome to my game!", 0, 0);    // x, y = the middle
-type_speed(60);                                          // faster (30 letters a second is normal)
-```
-
-Clicking or pressing SPACE or ENTER shows the rest right away.
-
-**Loading bar**: like an installer. It has moving stripes and a % number:
-
-```c
-loading("Installing...", 5);              // fills up in 5 seconds, THEN the next line runs
-loading("Installing...", 5, 0, -150);     // at a spot (x, y = the middle of the bar)
-```
-
-Do anything while it fills (run commands, download, whatever) and set the % yourself:
-
-```c
-progress("Installing stuff...", 0);
-run("sudo pacman -S --noconfirm git");
-progress(50);                              // slides smoothly to 50%
-run("sudo pacman -S --noconfirm ffmpeg");
-progress(100);
-```
-
-Or let it fill by itself while your code (or your game) keeps going:
-
-```c
-start_loading("Charging laser...", 10);   // 10 seconds, doesn't wait
-forever {
-    if (loading_done()) text_center("{blink}READY!", 0, 0);
+int main(void) {
+    window(800, 500);
+    button("Click me", 0, 0, hi);        // words, x, y, function
+    link("or me", 0, -60, hi);           // same, but it looks like clickable text
 }
 ```
 
+- `button_color("blue", "white");` sets the button color and its words. Call it **before** making the button.
+- `textsize(20);` before a button makes its words bigger.
+- `remove_button("Click me");` takes one away, and `new_screen();` removes everything.
+
+Want to wait for a click instead of using a function?
+
 ```c
-loading_color("red");        // color of the bar (green is normal)
-loading_size(500, 30);       // width, height
-hide_loading();              // take it away
+button("Yes", -60, 0);
+button("No", 60, 0);
+if (same(wait_button(), "Yes")) text("yay", 0, -60);
 ```
 
-## Ask the user things
+## Asking the user things
 
-The program simply waits for the answer — no callbacks needed.
+The program waits for the answer. No callbacks needed:
 
 ```c
 const char *name = userinput("What's your name?");      // box at the bottom
 text("{rainbow}Hi %s!", 0, 100, name);
 
 const char *q = userinput("Search...", 0, 50);          // box at x 0, y 50
-
-int choice = pick("Yes", "No");        // 1 = Yes, 2 = No
+float age = numberinput("How old are you?");            // gives back a number
+int answer = pick("Yes", "No");                         // 1 = Yes, 2 = No
+int k = wait_key();                                     // waits for a key
 ```
 
 <img src="screenshots/hello.png" width="520">
 
-## Buttons, links and typing
-
-```c
-void play(void) { text("Let's go!", 0, 0); }
-
-button("Play", 0, -100, play);         // words, x, y, what to do
-link("Click me", -200, 50, play);
-button_color("blue", "white");
-```
-
-A box you can type into — whatever you type can make new things appear:
+An input box that stays on screen and runs a function every time someone presses Enter:
 
 ```c
 void got_it(void) {
-    text(entry(), 0, 0);                              // print what they typed
-    if (typed("party"))  background("pink");
-    if (typed("button")) button("I'm new!", 0, -100, got_it);
+    text(entry(), 0, 0);                              // what they typed
+    if (typed("party")) background("pink");
 }
 
-inputbox("Type here...", 0, -200, 500, got_it);
+inputbox("Type here...", 0, -200, 500, got_it);       // hint, x, y, width, function
 ```
 
-Color the input box (for `userinput()` too). Call it **before** the box:
+Color any input box: `input_color("black", "white");` (box, words) or `input_color("black", "white", "red");` (+ border).
+
+## Terminal
+
+A box you type commands into, like a real terminal. Write a function for each command, then connect them. No loops:
 
 ```c
-input_color("black", "white");          // box color, color of the words you type
-input_color("#1b1b1b", "white", "red"); // + border color
-```
-
-<img src="screenshots/commands.png" width="520">
-
-## Terminal (type commands like a real one)
-
-**Step 1:** write a function for each command. **Step 2:** make the terminal. **Step 3:** connect them with `on_command`.
-No loops.
-
-```c
-#include "crayon.h"
-
 void hi(void)   { terminal_print("hello!"); }
-void echo(void) { terminal_print("%s", rest(1)); }        // rest(1) = everything after "echo"
+void echo(void) { terminal_print("%s", rest(1)); }    // rest(1) = everything after "echo"
 void ls(void)   { run("ls"); terminal_print("%s", run_output()); }
 
 int main(void) {
     window(800, 500);
-    terminal("$ ");                        // the whole window is a terminal, with a "$ " prompt
+    terminal("$ ");                    // the whole window is a terminal, with a "$ " prompt
     terminal_print("type help");
 
-    on_command("hi", hi);                  // typing  hi    runs hi()
-    on_command("echo", echo);              // typing  echo yo dude  prints "yo dude"
+    on_command("hi", hi);              // typing  hi  runs hi()
+    on_command("echo", echo);
     on_command("ls", ls);
 }
 ```
+
+<img src="screenshots/terminal-commands.png" width="520">
 
 You get these for free:
 
@@ -578,97 +463,109 @@ You get these for free:
 | PageUp / PageDown / mouse wheel | scroll back |
 | a wrong command | `lol: command not found (type help)` |
 
-Inside a command function, these tell you what was typed after the command name:
+Inside a command function, these tell you what was typed after the command:
 
 ```c
-word(1)      // the 1st word after the command      give apple   ->  "apple"
-number(1)    // that word as a number               add 2 3      ->  number(1) = 2, number(2) = 3
-rest(1)      // everything after the command        echo yo dude ->  "yo dude"
+word(1)      // the 1st word after it          give apple    ->  "apple"
+number(1)    // that word as a number          add 2 3       ->  2   (print it with %g)
+rest(1)      // everything after it            echo yo dude  ->  "yo dude"
 ```
 
-`number()` gives a decimal number, so print it with `%g` (not `%d`): `terminal_print("%g", number(1) + number(2));`
-
-More:
-
 ```c
-terminal(0, -200, 350, 150, "$ ");             // a terminal BOX: bottom-left corner (0, -200), top-right corner (350, 150)
-terminal_print("{red}error:{white} %d files", n);   // colors, numbers and \n work
-const char *name = terminal_input("Name? ");   // ask something and wait for the answer
-terminal_color("black", "white", "lime");      // background, text, prompt
-terminal_textsize(20);                          // bigger letters (16 is normal)
+terminal(0, -200, 350, 150, "$ ");               // a terminal BOX: bottom-left corner, top-right corner
+const char *name = terminal_input("Name? ");     // ask something and wait for the answer
+terminal_color("black", "white", "lime");        // background, text, prompt
+terminal_textsize(20);                            // bigger letters (16 is normal)
 terminal_clear();
-on_command("*", fn);                            // runs for anything that isn't one of your commands
+on_command("*", fn);                              // runs for anything that isn't one of your commands
 ```
-
-<img src="screenshots/terminal-commands.png" width="520">
 
 ## Sliders, checkboxes, switches and dropdowns
 
-Make them with a **name**. Later, read them with that name. No loops.
+Make them with a **name**, then read them anywhere with that name. No loops:
 
 ```c
-slider("Volume", 0, 100, -180, 120);              // name, min, max, x, y
+slider("Volume", 0, 100, -180, 120);              // name, min, max, x, y (add a 6th number to set the start)
 checkbox("Dark mode", -230, 50);
 toggle("Music", -230, 0);                         // an on/off switch
 dropdown("Color", "Red|Green|Blue", -180, -80);   // the choices, split by |
 ```
-
-Read them anywhere:
 
 ```c
 value("Volume")       // 0 ... 100
 value("Dark mode")    // 1 = ticked, 0 = not
 value("Music")        // 1 = on, 0 = off
 choice("Color")       // "Red", "Green" or "Blue"
-```
 
-Run a function when one changes:
-
-```c
-void dark(void) { background(value("Dark mode") ? "black" : "white"); }
-
-on_change("Dark mode", dark);
-```
-
-More:
-
-```c
-slider("Volume", 0, 100, -180, 120, 40);   // start at 40 (add a 6th number)
-set_value("Volume", 30);                   // change it from your code
-control_color("red");                      // color of knobs, ticks, switches (call it before making them)
-remove_control("Volume");
+on_change("Dark mode", fn);    // fn runs every time it changes
+set_value("Volume", 30);       // change it from your code
+control_color("red");          // color of knobs, ticks and switches (before making them)
 ```
 
 <img src="screenshots/controls-settings.png" width="520">
 
-## Pages
+## Loading bars
+
+An installer-style bar with moving stripes and a % number:
 
 ```c
-void settings(void) {
-    new_screen();                      // wipe everything
-    text("Settings", 0, 100);
-    link("< Back", -50, 0, home);
-}
+loading("Installing...", 5);              // fills up in 5 seconds, THEN the next line runs
+loading("Installing...", 5, 0, -150);     // at a spot (x, y = the middle of the bar)
 ```
 
-Every page is just a function. A button or link says which one to open next.
-That's how the search engine example below is built.
+Set the % yourself while you do anything:
 
-## Run commands
+```c
+progress("Installing stuff...", 0);
+run("sudo pacman -S --noconfirm git");
+progress(50);                              // slides smoothly to 50%
+run("sudo pacman -S --noconfirm ffmpeg");
+progress(100);
+```
+
+`start_loading("Charging...", 10);` fills by itself without waiting, and `loading_done()` tells you when it's full.
+`loading_color("red");`, `loading_size(500, 30);` and `hide_loading();` change how it looks.
+
+## Pages
+
+Every page is just a function. A button or link says which page to open next:
+
+```c
+void home(void);
+
+void settings(void) {
+    new_screen();                      // wipe everything
+    text_center("Settings", 0, 100);
+    link("< Back", 0, 0, home);
+}
+
+void home(void) {
+    new_screen();
+    text_center("Home", 0, 100);
+    button("Settings", 0, 0, settings);
+}
+
+int main(void) { window(800, 500); home(); }
+```
+
+## Running commands
 
 ```c
 const char *out = run("uname -r");          // runs it, waits, gives back what it printed
-text(out, -300, 100);                       // multi-line output shows on multiple lines
+text(out, -300, 100);
 
 run("pacman -Ss %s", word(1));              // %s puts in a word the user typed
-run("sudo pacman -S %s", input);            // sudo asks for the password in the terminal
-
 if (run_ok()) text("{green}worked!", 0, 0);
 else          text("{red}%s", 0, 0, run_output());   // show the error
 ```
 
 Every `%s` goes in as **one quoted word**, so whatever someone types can't sneak in extra commands
-(`x; rm -rf ~` stays just text). `%d` works for numbers. The window keeps working while a command runs.
+(`x; rm -rf ~` stays just text). `sudo` asks for the password in the terminal you started the program from.
+The window keeps working while a command runs.
+
+---
+
+# Games
 
 ## Easy games (no loops)
 
@@ -705,23 +602,23 @@ int main(void) {
 }
 ```
 
-That's the whole game - it starts by itself at the end of `main`.
+That's the whole game. It starts by itself at the end of `main`.
 
 | | |
 |---|---|
-| `player("x.png")` | you - arrow keys / WASD. `player_speed(8)`, `tank_controls()` |
+| `player("x.png")` | you: arrow keys / WASD. `player_speed(8)`, `tank_controls()` |
 | `spawn("x.png", 5)` / `spawn_at("x.png", x, y)` | put things in the world |
 | `spawn("x.png", 5, 0.5)` / `player("x.png", 0.5)` / `size_all("x.png", 0.5)` | smaller (or bigger: `2`) |
 | `on_touch("x.png", fn)` | run `fn()` when you touch one |
-| inside that fn | `respawn()`, `remove_it()`, `it()` (the thing you touched) |
+| inside that function | `respawn()`, `remove_it()`, `it()` (the thing you touched) |
 | `chase("x.png", speed)` / `spin_all("x.png", speed)` | make them chase you / spin |
 | `add_score(1)`, `score()`, `show_score()` | score in the top-left |
 | `lives(3)`, `lose_life()`, `lives_left()` | hearts in the top-right |
 | `game_over("msg")`, `you_win("msg")` | end screen, SPACE plays again |
 
-See `coins.c`.
+## Enemies, health and hearts
 
-### Enemies, health and hearts (only if you want them)
+Only if you want them:
 
 ```c
 enemies("ghost.png", 3);                      // 3 ghosts chase you and bite (10 damage)
@@ -732,113 +629,50 @@ shoots("ghost.png", "fireball.png", 1, 15);   // every 1 second, 15 damage
 health(100);                                  // a health bar in the top-right
 hearts(5);                                    // 5 hearts (each hit takes one)
 hearts(3, "heart.png");                       // with your own heart picture
-// use health() AND hearts() together: an empty bar costs a heart and refills
-
 hurt(10);  heal(25);  health_left()           // do it yourself from any function
-
-size_all("ghost.png", 0.6);                   // smaller ghosts
-size_all("fireball.png", 0.5);                // smaller fireballs (works for ones shot later too)
 ```
 
 <img src="screenshots/battle.png" width="520">
 
-After a hit you blink and can't be hurt for a moment. `ghost.png`, `fireball.png` and `heart.png` are in the repo. See `battle.c`.
+After a hit you blink and can't be hurt for a moment. Use `health()` and `hearts()` together, and an empty bar costs a heart and refills.
 
-## Games (with forever)
+## Games with `forever`
+
+For full control, `forever { }` runs 60 times a second:
 
 ```c
-Turtle player = new_turtle();
-picture("player.png");
+Thing me = add_image("player.png", 0, 0);
 
 forever {
-    key(UP)    forward(4);
-    key(LEFT)  left(5);
-    key(RIGHT) right(5);
-    press(SPACE) text("jump!", 0, 0);
+    key(UP)    move_by(me, 0, 4, 0);
+    key(DOWN)  move_by(me, 0, -4, 0);
+    press(SPACE) text("jump!", 0, 0);       // key = held down, press = just pressed
 }
 ```
 
-Also: `touching(coin)`, `draggable()`, `clicked()`, `mouse_x()`, `rnd(1, 6)`.
+Also: `mouse_x()`, `mouse_y()`, `rnd(1, 6)`, `things_touch(a, b)`, `wait_for(0.5)`.
 
 <img src="screenshots/game.png" width="520">
 
 ---
 
-## Example: an "ask me anything" bot
+# More
 
-A `while` loop + `userinput()` + `strstr()` = a chatbot. `strstr` checks if a word is anywhere in what
-they typed, so "what is linux" still matches `"linux"`.
-
-```c
-#include "crayon.h"
-
-void page(void) {
-    clear();                                   // wipe the old answer
-    image("coogle.png", 0, 120, 0.5);          // coogle.png is in this repo
-    textsize(22);
-    text_center("{white}Ask coogle anything!", 0, 40);
-}
-
-int main(void) {
-    window(1000, 500);
-    background("black");
-    page();
-
-    while (1) {
-        const char *input = userinput("?:");
-        page();                                // fresh screen for every question
-
-        textsize(20);
-        if (strstr(input, "gnu"))
-            text_center("{white}GNU is free software you can use, change and share.", 0, -100);
-        else if (strstr(input, "linux"))
-            text_center("{white}Linux is a kernel made by {yellow}Linus Torvalds{white}.", 0, -100);
-        else
-            text_center("{gray}I don't know \"%s\" yet", 0, -100, input);
-    }
-}
-```
-
-<img src="screenshots/ask.png" width="640">
-
-**Why the `page()` function?** Text stays on the screen until you `clear()` it. Without clearing,
-every new answer would be drawn on top of the last one. `clear()` wipes everything, so `page()`
-draws the picture and title again before each answer.
-
-Tips:
-- `strstr` cares about capitals — `"Linux"` won't match `"linux"`. Use `same(input, "linux")` for an exact match that ignores capitals.
-- Always end with an `else` so the bot answers something even when it doesn't know the word.
-- Closing the window ends the program, even inside `while (1)`.
-
----
-
-## Example: a search engine in ~150 lines
-
-`search.c` is a pretend search engine called **Turtlr**: home page, search box, buttons,
-a results page and pretend websites — all made from `text()`, `link()`, `button()`,
-`inputbox()` and `box()`.
-
-<img src="screenshots/search-home.png" width="640">
-<img src="screenshots/search-results.png" width="640">
+## Fullscreen and closing
 
 ```c
-void home(void) {
-    new_screen();
-
-    textsize(92);
-    bold(1);
-    text_center("{#2e9e5b}T{orange}u{purple}r{blue}t{red}l{teal}r", 0, 95);
-    bold(0);
-
-    inputbox("Search Turtlr or type a URL", 0, 10, 580, do_search);
-    button("Turtlr Search", -85, -55, do_search);
-    button("I'm Feeling Lucky", 85, -55, lucky);
-}
+fullscreen();              // use instead of window(): the whole screen, no bars or borders
+exit_key(ESC);             // optional: this key closes it (add more: exit_key('q');)
+quit();                    // close it from your code, like button("Quit", 0, -100, quit);
 ```
 
----
+Without `exit_key()`, no key closes the program. That's handy for a video your cat can smash keys on.
+Your system's own close shortcut (like Alt+F4) still works.
 
-## All the examples
+`window_width()`, `window_height()`, `left_edge()`, `right_edge()`, `top_edge()` and `bottom_edge()` tell you where the edges are.
+`title("My App");` changes the window's name.
+
+## Examples
 
 | file | what it shows |
 |---|---|
@@ -846,31 +680,33 @@ void home(void) {
 | `draw.c` | every way to draw: lines, shapes, fills, boxes, pictures |
 | `place.c` | buttons in every corner, with the coordinate grid |
 | `gallery.c` | pictures anywhere with `image()` |
-| `move.c` | move and turn pictures and text with `image(...) { move_to(); lt(); rt(); }` |
-| `shell.c` | a full-window terminal with commands (`on_command`), `terminal_input()` and `run()` |
-| `controls.c` | a settings page: slider, checkbox, switch, dropdown and a terminal box |
+| `move.c` | move and turn pictures and text |
+| `pictures.c` | a picture pen and an arrow pen drawing together |
 | `hello.c` | `userinput()`, `pick()` and rainbow text |
 | `ask.c` | an "ask me anything" bot with `userinput()` and `strstr()` |
-| `commands.c` | type words, new things appear |
-| `pictures.c` | a picture pen and an arrow pen drawing together |
-| `coins.c` | a full coin game with no loops: `player()`, `spawn()`, `on_touch()` |
+| `commands.c` | type words and new things appear |
+| `shell.c` | a full-window terminal with commands |
+| `controls.c` | a settings page: slider, checkbox, switch, dropdown and a terminal box |
+| `search.c` | Turtlr, a pretend search engine in ~150 lines |
+| `coins.c` | a coin game with no loops |
 | `battle.c` | ghosts that chase and shoot, with a health bar |
 | `game.c` | a small arcade game |
-| `search.c` | Turtlr, the pretend search engine |
 
 ```sh
 gcc search.c -o search && ./search
 ```
 
+<img src="screenshots/search-home.png" width="640">
+
 ## Speed
 
-Fast even with plain `gcc main.c` — crayon turns its own optimizations on, so you don't need `-O2`.
+Fast even with plain `gcc main.c`: crayon turns on its own optimizations, so you don't need `-O2`.
 It shares picture memory straight with the X server (MIT-SHM), only redraws the parts of the window
 that pictures cover, and keeps a ready-to-draw copy of every picture.
 
 Same scenes, same pictures, 1280×720 window, milliseconds per frame (lower = faster):
 
-| Scene | crayon.h | SDL2 (OpenGL renderer) | SDL2 (software) |
+| Scene | crayon.h | SDL2 (OpenGL) | SDL2 (software) |
 |---|---|---|---|
 | empty frame | **0.48** | 0.97 | 6.2 |
 | 300 sprites moving | **2.4** | 2.3 | 7.3 |
@@ -880,48 +716,78 @@ Same scenes, same pictures, 1280×720 window, milliseconds per frame (lower = fa
 
 Measured on a machine with no graphics card, so SDL's OpenGL ran on the CPU too.
 With a real GPU, SDL's OpenGL renderer will win on scenes with thousands of big sprites.
-For normal crayon programs (a game with some pictures, text, buttons) you'll be at 60 fps with room to spare.
-
-`spawn("coin.png", 300)` takes 0.2 ms. `forever` and games are capped at 60 fps so they don't eat your CPU.
-Up to 1024 things on screen.
+For normal crayon programs you'll be at 60 fps with lots of room to spare.
+`forever` and games are capped at 60 fps so they don't eat your CPU. Up to 1024 things on screen.
 
 ## Requirements
 
-Emoji need an emoji font installed (most desktops have one; on Arch: `sudo pacman -S noto-fonts-emoji`).
+- Linux with X11, or Wayland (through XWayland, which every Wayland desktop has).
+- `libX11` and `libXft`, which every normal desktop Linux already has. They're loaded when the program starts, so you never link anything.
+- `ffmpeg` for videos, webp and `sound()`.
+- An emoji font for emoji (most desktops have one; on Arch: `sudo pacman -S noto-fonts-emoji`).
 
-Linux with X11 or Wayland (XWayland). Uses `libX11` and (optionally) `libXft` for smooth text — both
-already on any normal desktop Linux, loaded at runtime, so you never link anything. Pictures are decoded
-by [stb_image](https://github.com/nothings/stb) (built in). Videos, webp and `sound()` need `ffmpeg`.
+Pictures are read by [stb_image](https://github.com/nothings/stb), which is built in.
 
 ## Cheat sheet
 
-```
-bundle("file")  window(w, h)  fullscreen()  exit_key(ESC)  quit()  title("...")  background("color")  grid()  show_coords()  coords()  coords(100)  coords_off()
-forward(n)  back(n)  left(deg)  right(deg)  face(deg)  go_to(x, y)  walk_to(x, y)  go_home()
-color("red")  thickness(n)  penup()  pendown()  speed(0-10)  circle(r)  dot(size)
-box(x1, y1, x2, y2, "color", round)  box_outline("color", thick)  box(x, y, w, h)  round_box(x, y, w, h, r)  outline(x, y, w, h, r)  begin_fill()  end_fill()
-clear()  new_screen()
-arrow()  picture("x.png")  hide()  show()  turtle_size(n)  flip(1)  keep_upright()
-image("x.png", x, y)  image("x.png", x, y, scale)  layer("x.png", 1-100)  dim("x.png", 0.0-1.0)  layer(thing, n)  dim(thing, n)
-image("x.png/.gif/.mp4", x, y) { }  sound("x.mp3")  stop_sounds()  label("...", x, y) { }  move_to(x, y, speed)  move_by(dx, dy, speed)  lt(deg)  rt(deg)  spin(deg)
-rotate(deg)  rotate_to(deg)  place(x, y)  resize(n)  glide(x, y, speed)  start_spin(deg, speed)  stamp("x.png", x, y)
-add_image("x.png", x, y)  add_text("...", x, y)  change_text(t, "...")  things_touch(a, b)  drag_thing(t)
-text("...", x, y)  text_center("...", x, y)  textsize(n)  bold(1)  say("...")
-{party} {wave} {shake} {blink} {pulse} {still}  type_text("...", x, y)  type_text_center("...", x, y)  type_speed(n)
-loading("...", sec)  loading("...", sec, x, y)  start_loading("...", sec)  loading_done()  progress("...", pct)  progress(pct)  loading_color("c")  loading_size(w, h)  hide_loading()
-userinput("question")  userinput("question", x, y)  numberinput("question")  pick("A", "B")  wait_button()  wait_key()
-button("words", x, y, fn)  link("words", x, y, fn)  button_color("bg", "text")  input_color("bg", "text", "border")
-terminal("$ ")  terminal(left, bottom, right, top, "$ ")  on_command("name", fn)  terminal_print("...")  terminal_input("?")  terminal_clear()  terminal_color("bg", "text", "prompt")  terminal_textsize(n)
-slider("name", min, max, x, y)  checkbox("name", x, y)  toggle("name", x, y)  dropdown("name", "A|B|C", x, y)  value("name")  choice("name")  on_change("name", fn)  set_value("name", n)
-inputbox("hint", x, y, width, fn)  entry()  typed("x")  command("x")  word(n)  number(n)
-new_turtle()  use(t)  touching(t)  clicked()  draggable()  xcor()  ycor()
-run("cmd %s", word)  run_ok()  run_output()
-player("x.png")  spawn("x.png", n)  on_touch("x.png", fn)  respawn()  remove_it()  chase("x.png", s)
-add_score(n)  show_score()  lives(n)  lose_life()  game_over("..")  you_win("..")
-enemies("x.png", n, speed, damage)  shoots("x.png", "bullet.png", sec, damage)  health(n)  hearts(n, "x.png")  hurt(n)  heal(n)
-forever { }  key(k) { }  press(k) { }  mouse_x()  mouse_y()  rnd(a, b)  wait_for(sec)
-```
+| Window | |
+|---|---|
+| `window(w, h)` `fullscreen()` `title("...")` `background("color")` | make it |
+| `exit_key(ESC)` `quit()` | closing |
+| `coords()` `coords(100)` `coords_off()` `grid()` `show_coords()` | find your x, y |
+| `clear()` `new_screen()` | wipe the drawings / wipe everything |
+| `bundle("file")` | pack a file into the program |
+
+| Drawing | |
+|---|---|
+| `forward(n)` `back(n)` `left(deg)` `right(deg)` `face(deg)` | move the pen |
+| `go_to(x, y)` `walk_to(x, y)` `go_home()` | jump / draw to a spot |
+| `color("red")` `thickness(n)` `penup()` `pendown()` `speed(0-10)` | pen settings |
+| `circle(r)` `dot(size)` `begin_fill()` `end_fill()` `repeat(n) { }` | shapes |
+| `box(x1, y1, x2, y2, "color", round)` `box_outline("color", thick)` | boxes |
+| `arrow()` `picture("x.png")` `hide()` `show()` `turtle_size(n)` | how the pen looks |
+
+| Text | |
+|---|---|
+| `text("...", x, y)` `text_center("...", x, y)` `textsize(n)` `bold(1)` | words |
+| `{red}` `{#ff8800}` `{rainbow}` `{party}` `{wave}` `{shake}` `{blink}` `{pulse}` `{still}` | tags inside text |
+| `type_text("...", x, y)` `type_text_center("...", x, y)` `type_speed(n)` | typing |
+| `label("...", x, y) { }` `add_text("...", x, y)` `change_text(t, "...")` | text you can move |
+
+| Pictures and sound | |
+|---|---|
+| `image("x.png", x, y)` `image("x.png", x, y, scale)` `image(...) { }` | pictures, gifs, videos |
+| `add_image("x.png", x, y)` `stamp("x.png", x, y)` | a picture you can move / paint one on |
+| `move_to(x, y, speed)` `move_by(dx, dy, speed)` `lt(deg)` `rt(deg)` `spin(deg)` | move it |
+| `rotate(deg)` `rotate_to(deg)` `place(x, y)` `resize(n)` `glide(x, y, speed)` | more moving |
+| `layer("x.png", 1-100)` `dim("x.png", 0-1)` | on top / darker |
+| `things_touch(a, b)` `drag_thing(t)` | touching / dragging |
+| `sound("x.mp3")` `stop_sounds()` | sound |
+
+| Apps | |
+|---|---|
+| `button("words", x, y, fn)` `link("words", x, y, fn)` `button_color("bg", "text")` | buttons |
+| `userinput("?")` `userinput("?", x, y)` `numberinput("?")` `pick("A", "B")` | ask and wait |
+| `wait_button()` `wait_key()` `wait_click()` `wait_for(sec)` | wait |
+| `inputbox("hint", x, y, width, fn)` `entry()` `typed("x")` `input_color("bg", "text", "border")` | input box |
+| `terminal("$ ")` `terminal(x1, y1, x2, y2, "$ ")` `on_command("name", fn)` | terminal |
+| `terminal_print("...")` `terminal_input("?")` `terminal_clear()` `terminal_color(...)` | terminal |
+| `word(n)` `number(n)` `rest(n)` `command("x")` `same(a, b)` | what was typed |
+| `slider("name", min, max, x, y)` `checkbox(...)` `toggle(...)` `dropdown("name", "A\|B", x, y)` | controls |
+| `value("name")` `choice("name")` `on_change("name", fn)` `set_value("name", n)` | read controls |
+| `loading("...", sec)` `progress("...", pct)` `start_loading(...)` `loading_done()` | loading bars |
+| `run("cmd %s", word)` `run_ok()` `run_output()` | shell commands |
+
+| Games | |
+|---|---|
+| `player("x.png")` `spawn("x.png", n)` `spawn_at("x.png", x, y)` `size_all("x.png", n)` | things |
+| `on_touch("x.png", fn)` `respawn()` `remove_it()` `it()` | touching |
+| `chase("x.png", speed)` `spin_all("x.png", speed)` | movement |
+| `add_score(n)` `show_score()` `lives(n)` `lose_life()` `game_over("..")` `you_win("..")` | score and lives |
+| `enemies("x.png", n, speed, damage)` `shoots("x.png", "bullet.png", sec, damage)` | enemies |
+| `health(n)` `hearts(n, "x.png")` `hurt(n)` `heal(n)` | health |
+| `forever { }` `key(k)` `press(k)` `mouse_x()` `mouse_y()` `rnd(a, b)` | loops and input |
 
 ## License
 
-MIT — do whatever you want with it.
+MIT. Do whatever you want with it.
